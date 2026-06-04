@@ -93,9 +93,8 @@ button { font-family: inherit; cursor: pointer; }
 .blank.filled { background: #eaf1ff; }
 .blank.answer { border-color: var(--ok); background: #eefaf2; color: var(--ok); }
 .blank.correct { border-color: var(--ok); background: #eefaf2; color: var(--ok); }
-.blank.wrong { border-color: var(--bad); background: #fdeaea; color: var(--bad); flex-direction: column; height: auto; min-height: 36px; padding: 2px 8px; }
-.blank.wrong .bad-val { text-decoration: line-through; font-size: 14px; opacity: .8; }
-.blank.wrong .fix { color: var(--ok); font-size: 15px; }
+.blank.wrong { border-color: var(--bad); background: #fdeaea; color: var(--bad); }
+.blank.wrong .bad-val { text-decoration: line-through; opacity: .85; }
 
 /* 분수 */
 .frac { display: inline-flex; flex-direction: column; align-items: center; vertical-align: middle; margin: 0 3px; }
@@ -137,6 +136,24 @@ button { font-family: inherit; cursor: pointer; }
 .sch-meta { color: #374151; font-size: 14px; }
 .badge { background: var(--blue); color: #fff; font-size: 11px; padding: 2px 8px; border-radius: 999px; margin-left: 4px; }
 .badge.alt { background: #8b5cf6; }
+
+/* 제출 기록 */
+.hist-list { display: flex; flex-direction: column; gap: 8px; }
+.hist-row { display: grid; grid-template-columns: 1.3fr 1.4fr auto 1.2fr; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; border-left: 4px solid var(--line); }
+.hist-row.ok { border-left-color: var(--ok); }
+.hist-row.bad { border-left-color: var(--bad); }
+.hist-time { font-weight: 700; font-size: 14px; }
+.hist-sub { color: var(--muted); font-size: 13px; }
+.hist-score { font-size: 18px; font-weight: 800; color: var(--ink); }
+.hist-score span { font-size: 13px; font-weight: 600; color: var(--muted); }
+.hist-wrong { font-size: 13px; color: #374151; text-align: right; }
+.hist-row.ok .hist-wrong { color: var(--ok); }
+.hist-row.bad .hist-wrong { color: var(--bad); }
+@media (max-width: 640px) {
+  .hist-row { grid-template-columns: 1fr auto; }
+  .hist-sub { grid-column: 1 / -1; }
+  .hist-wrong { grid-column: 1 / -1; text-align: left; }
+}
 
 /* ---------- 손글씨 팝업 ---------- */
 .hw-overlay, .modal-overlay {
