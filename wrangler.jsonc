@@ -15,8 +15,5 @@
 	"observability": {
 		"enabled": true
 	},
-	"ai": {
-		"binding": "AI"
-	},
 	"upload_source_maps": true
 }
