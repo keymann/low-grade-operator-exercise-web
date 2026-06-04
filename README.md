@@ -1,153 +1,53 @@
-# LLM Chat Application Template
+# 일일수학 클론 — 손글씨 연산 연습 웹앱
 
-A simple, ready-to-deploy chat application template powered by Cloudflare Workers AI. This template provides a clean starting point for building AI chat applications with streaming responses.
+[일일수학(11math.com)](https://www.11math.com/calc) 스타일의 초등 연산 문제지를 클론한 웹앱입니다.
+학생은 **손글씨로 답을 쓰면 OCR로 숫자로 변환**되어 채점되고, 부모님은 학년·세부 항목별로 문제를 출제하거나 요일별 스케줄을 관리할 수 있습니다.
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cloudflare/templates/tree/main/llm-chat-app-template)
+Cloudflare Workers(정적 자산 서빙 + Workers AI OCR)로 동작하며, 모바일/태블릿/데스크탑 반응형입니다.
 
-<!-- dash-content-start -->
+## 주요 기능
 
-## Demo
+### 학생 모드 (기본 화면)
+- **오늘의 문제** 타이틀만 노출 (다른 메뉴 없음)
+- 답란을 누르면 **손글씨 입력 팝업** (완료 / 다시쓰기 / 취소)
+  - **완료**: 손글씨를 OCR로 숫자 변환하여 답란에 입력
+  - **다시쓰기**: 캔버스 초기화
+  - **취소**: 팝업만 닫기
+- 모든 답란을 채우면 **제출 / 다시 풀기** 팝업
+- **제출** 시 채점하고 틀린 문제를 빨간색으로 표시
+- 모두 정답이면 **"수고했어요. 엄마에게 자랑해요!"** 축하 팝업
 
-This template demonstrates how to build an AI-powered chat interface using Cloudflare Workers AI with streaming responses. It features:
+### 부모님 모드 (비밀번호 진입, 초기값 `kw20021163`)
+- **출제하기**: 학년 · 단원 · 세부 항목 · 문제 개수를 선택해 즉시 출제
+- **스케줄**: 요일별 반복 출제 설정. 편집 시 *이 날짜만 / 같은 요일 모두* 변경 + 난이도·개수 조정
+- **정답확인**: 출제한 문제의 정답지 및 학생 채점 결과(점수·틀린 문제 번호) 확인
+- **설정**: 비밀번호 변경
 
-- Real-time streaming of AI responses using Server-Sent Events (SSE)
-- Easy customization of models and system prompts
-- Support for AI Gateway integration
-- Clean, responsive UI that works on mobile and desktop
+> 문제는 원본 페이지의 콘텐츠를 복사하지 않고, **같은 난이도 수준으로 매번 새로 생성**합니다.
 
-## Features
+## 구조
 
-- 💬 Simple and responsive chat interface
-- ⚡ Server-Sent Events (SSE) for streaming responses
-- 🧠 Powered by Cloudflare Workers AI LLMs
-- 🛠️ Built with TypeScript and Cloudflare Workers
-- 📱 Mobile-friendly design
-- 🔄 Maintains chat history on the client
-- 🔎 Built-in Observability logging
-<!-- dash-content-end -->
-
-## Getting Started
-
-### Prerequisites
-
-- [Node.js](https://nodejs.org/) (v18 or newer)
-- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/)
-- A Cloudflare account with Workers AI access
-
-### Installation
-
-1. Clone this repository:
-
-   ```bash
-   git clone https://github.com/cloudflare/templates.git
-   cd templates/llm-chat-app
-   ```
-
-2. Install dependencies:
-
-   ```bash
-   npm install
-   ```
-
-3. Generate Worker type definitions:
-   ```bash
-   npm run cf-typegen
-   ```
-
-### Development
-
-Start a local development server:
-
-```bash
-npm run dev
+```
+public/
+  index.html       # SPA 셸
+  styles.css       # 반응형 스타일 (일일수학 비주얼)
+  problems.js      # 커리큘럼 카탈로그 + 문제 생성기
+  handwriting.js   # 손글씨 캔버스 팝업 + OCR 호출
+  app.js           # 모드/상태/학생·부모 흐름
+src/
+  index.ts         # Worker: 정적 자산 + POST /api/ocr (Workers AI 비전 OCR)
+  types.ts
 ```
 
-This will start a local server at http://localhost:8787.
+상태(비밀번호, 스케줄, 출제/채점 결과)는 브라우저 `localStorage`에 저장됩니다.
 
-Note: Using Workers AI accesses your Cloudflare account even during local development, which will incur usage charges.
-
-### Deployment
-
-Deploy to Cloudflare Workers:
+## 개발 / 실행
 
 ```bash
+npm install
+npm run dev      # http://localhost:8787 (Workers AI OCR는 Cloudflare 계정 사용)
+npm run check    # 타입체크 + 배포 dry-run
 npm run deploy
 ```
 
-### Monitor
-
-View real-time logs associated with any deployed Worker:
-
-```bash
-npm wrangler tail
-```
-
-## Project Structure
-
-```
-/
-├── public/             # Static assets
-│   ├── index.html      # Chat UI HTML
-│   └── chat.js         # Chat UI frontend script
-├── src/
-│   ├── index.ts        # Main Worker entry point
-│   └── types.ts        # TypeScript type definitions
-├── test/               # Test files
-├── wrangler.jsonc      # Cloudflare Worker configuration
-├── tsconfig.json       # TypeScript configuration
-└── README.md           # This documentation
-```
-
-## How It Works
-
-### Backend
-
-The backend is built with Cloudflare Workers and uses the Workers AI platform to generate responses. The main components are:
-
-1. **API Endpoint** (`/api/chat`): Accepts POST requests with chat messages and streams responses
-2. **Streaming**: Uses Server-Sent Events (SSE) for real-time streaming of AI responses
-3. **Workers AI Binding**: Connects to Cloudflare's AI service via the Workers AI binding
-
-### Frontend
-
-The frontend is a simple HTML/CSS/JavaScript application that:
-
-1. Presents a chat interface
-2. Sends user messages to the API
-3. Processes streaming responses in real-time
-4. Maintains chat history on the client side
-
-## Customization
-
-### Changing the Model
-
-To use a different AI model, update the `MODEL_ID` constant in `src/index.ts`. You can find available models in the [Cloudflare Workers AI documentation](https://developers.cloudflare.com/workers-ai/models/).
-
-### Using AI Gateway
-
-The template includes commented code for AI Gateway integration, which provides additional capabilities like rate limiting, caching, and analytics.
-
-To enable AI Gateway:
-
-1. [Create an AI Gateway](https://dash.cloudflare.com/?to=/:account/ai/ai-gateway) in your Cloudflare dashboard
-2. Uncomment the gateway configuration in `src/index.ts`
-3. Replace `YOUR_GATEWAY_ID` with your actual AI Gateway ID
-4. Configure other gateway options as needed:
-   - `skipCache`: Set to `true` to bypass gateway caching
-   - `cacheTtl`: Set the cache time-to-live in seconds
-
-Learn more about [AI Gateway](https://developers.cloudflare.com/ai-gateway/).
-
-### Modifying the System Prompt
-
-The default system prompt can be changed by updating the `SYSTEM_PROMPT` constant in `src/index.ts`.
-
-### Styling
-
-The UI styling is contained in the `<style>` section of `public/index.html`. You can modify the CSS variables at the top to quickly change the color scheme.
-
-## Resources
-
-- [Cloudflare Workers Documentation](https://developers.cloudflare.com/workers/)
-- [Cloudflare Workers AI Documentation](https://developers.cloudflare.com/workers-ai/)
-- [Workers AI Models](https://developers.cloudflare.com/workers-ai/models/)
+손글씨 OCR은 Workers AI 비전 모델(`@cf/meta/llama-3.2-11b-vision-instruct`)을 사용합니다.

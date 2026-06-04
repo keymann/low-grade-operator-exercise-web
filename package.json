@@ -1,21 +1,6 @@
 {
 	"name": "low-grade-operator-exercise-web",
-	"description": "A simple chat application powered by Cloudflare Workers AI",
-	"cloudflare": {
-		"label": "LLM Chat App",
-		"products": [
-			"Workers",
-			"Workers AI",
-			"AI Gateway"
-		],
-		"categories": [
-			"ai"
-		],
-		"docs_url": "https://developers.cloudflare.com/workers-ai/",
-		"preview_icon_url": "https://imagedelivery.net/wSMYJvS3Xw-n339CbDyDIA/a974bd55-20c6-4656-fa29-1551d43ddc00/public",
-		"preview_image_url": "https://imagedelivery.net/wSMYJvS3Xw-n339CbDyDIA/65dd8441-89d3-491d-c5a1-0a000d070700/preview",
-		"publish": true
-	},
+	"description": "일일수학 스타일 손글씨 연산 연습 웹앱 (학생/부모 모드, OCR 채점)",
 	"devDependencies": {
 		"@cloudflare/vitest-pool-workers": "0.10.11",
 		"@cloudflare/workers-types": "^4.20250425.0",
