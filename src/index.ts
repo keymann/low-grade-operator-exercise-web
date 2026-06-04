@@ -1,104 +1,108 @@
 /**
- * LLM Chat Application Template
+ * 일일수학 클론 — 손글씨 연산 연습 웹앱
  *
- * A simple chat application using Cloudflare Workers AI.
- * This template demonstrates how to implement an LLM-powered chat interface with
- * streaming responses using Server-Sent Events (SSE).
+ * Cloudflare Worker:
+ *  - 정적 자산(SPA) 서빙
+ *  - POST /api/ocr : 손글씨 캔버스 이미지를 받아 Workers AI 비전 모델로 숫자 인식
  *
  * @license MIT
  */
-import { Env, ChatMessage } from "./types";
+import { Env, OcrRequest } from "./types";
 
-// Model ID for Workers AI model
+// 손글씨 숫자 인식에 사용할 비전 모델
 // https://developers.cloudflare.com/workers-ai/models/
-const MODEL_ID = "@cf/meta/llama-3.1-8b-instruct-fp8";
-
-// Default system prompt
-const SYSTEM_PROMPT =
-	"You are a helpful, friendly assistant. Provide concise and accurate responses.";
+const VISION_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
 
 export default {
-	/**
-	 * Main request handler for the Worker
-	 */
 	async fetch(
 		request: Request,
 		env: Env,
-		ctx: ExecutionContext,
+		_ctx: ExecutionContext,
 	): Promise<Response> {
 		const url = new URL(request.url);
 
-		// Handle static assets (frontend)
-		if (url.pathname === "/" || !url.pathname.startsWith("/api/")) {
+		if (url.pathname === "/api/ocr") {
+			if (request.method !== "POST") {
+				return new Response("Method not allowed", { status: 405 });
+			}
+			return handleOcr(request, env);
+		}
+
+		// 그 외 모든 경로는 정적 자산(SPA)
+		if (!url.pathname.startsWith("/api/")) {
 			return env.ASSETS.fetch(request);
 		}
 
-		// API Routes
-		if (url.pathname === "/api/chat") {
-			// Handle POST requests for chat
-			if (request.method === "POST") {
-				return handleChatRequest(request, env);
-			}
-
-			// Method not allowed for other request types
-			return new Response("Method not allowed", { status: 405 });
-		}
-
-		// Handle 404 for unmatched routes
 		return new Response("Not found", { status: 404 });
 	},
 } satisfies ExportedHandler<Env>;
 
 /**
- * Handles chat API requests
+ * 손글씨 이미지를 받아 숫자 문자열로 변환한다.
+ * 응답: { digits: string }  (인식 실패 시 빈 문자열)
  */
-async function handleChatRequest(
-	request: Request,
-	env: Env,
-): Promise<Response> {
+async function handleOcr(request: Request, env: Env): Promise<Response> {
 	try {
-		// Parse JSON request body
-		const { messages = [] } = (await request.json()) as {
-			messages: ChatMessage[];
-		};
-
-		// Add system prompt if not present
-		if (!messages.some((msg) => msg.role === "system")) {
-			messages.unshift({ role: "system", content: SYSTEM_PROMPT });
+		const { image } = (await request.json()) as OcrRequest;
+		if (!image || typeof image !== "string") {
+			return json({ digits: "", error: "no image" }, 400);
 		}
 
-		const stream = await env.AI.run(
-			MODEL_ID,
-			{
-				messages,
-				max_tokens: 1024,
-				stream: true,
-			},
-			{
-				// Uncomment to use AI Gateway
-				// gateway: {
-				//   id: "YOUR_GATEWAY_ID", // Replace with your AI Gateway ID
-				//   skipCache: false,      // Set to true to bypass cache
-				//   cacheTtl: 3600,        // Cache time-to-live in seconds
-				// },
-			},
-		);
+		const bytes = dataUrlToBytes(image);
+		if (!bytes) {
+			return json({ digits: "", error: "bad image" }, 400);
+		}
 
-		return new Response(stream, {
-			headers: {
-				"content-type": "text/event-stream; charset=utf-8",
-				"cache-control": "no-cache",
-				connection: "keep-alive",
-			},
-		});
-	} catch (error) {
-		console.error("Error processing chat request:", error);
-		return new Response(
-			JSON.stringify({ error: "Failed to process request" }),
-			{
-				status: 500,
-				headers: { "content-type": "application/json" },
-			},
-		);
+		const result = (await env.AI.run(VISION_MODEL, {
+			image: [...bytes],
+			max_tokens: 32,
+			messages: [
+				{
+					role: "system",
+					content:
+						"You are a strict OCR engine for handwritten digits. " +
+						"The image contains one number made of one or more handwritten digits (0-9), " +
+						"possibly with a leading minus sign or a decimal point. " +
+						"Reply with ONLY that number. No words, no explanation. If unclear, give your best single guess.",
+				},
+				{
+					role: "user",
+					content: "What number is written in this image?",
+				},
+			],
+		})) as { response?: string };
+
+		const digits = cleanNumber(result?.response ?? "");
+		return json({ digits });
+	} catch (err) {
+		console.error("OCR error:", err);
+		return json({ digits: "", error: "ocr failed" }, 500);
 	}
+}
+
+/** "data:image/png;base64,XXXX" → Uint8Array */
+function dataUrlToBytes(dataUrl: string): Uint8Array | null {
+	const comma = dataUrl.indexOf(",");
+	const b64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+	try {
+		const binary = atob(b64);
+		const out = new Uint8Array(binary.length);
+		for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+		return out;
+	} catch {
+		return null;
+	}
+}
+
+/** 모델 응답에서 숫자만 추출 (음수/소수점 허용). */
+function cleanNumber(text: string): string {
+	const match = text.replace(/\s+/g, "").match(/-?\d+(?:\.\d+)?/);
+	return match ? match[0] : "";
+}
+
+function json(body: unknown, status = 200): Response {
+	return new Response(JSON.stringify(body), {
+		status,
+		headers: { "content-type": "application/json; charset=utf-8" },
+	});
 }
