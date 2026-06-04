@@ -23,7 +23,7 @@
       const raw = localStorage.getItem(STORE_KEY);
       if (raw) return JSON.parse(raw);
     } catch (e) {}
-    return { password: DEFAULT_PW, schedule: {}, scheduleOverrides: {}, assignment: null, issued: [] };
+    return { password: DEFAULT_PW, schedule: {}, scheduleOverrides: {}, assignment: null, issued: [], history: [] };
   }
   function saveState() { localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
 
@@ -38,6 +38,11 @@
     const d = new Date(dateStr + "T00:00:00");
     return `${d.getMonth() + 1}월 ${d.getDate()}일 (${WEEKDAY_KO[WEEKDAYS[d.getDay()]]})`;
   }
+  function fmtDateTime(iso) {
+    const d = new Date(iso);
+    const p = (n) => String(n).padStart(2, "0");
+    return `${d.getMonth() + 1}월 ${d.getDate()}일 (${WEEKDAY_KO[WEEKDAYS[d.getDay()]]}) ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
 
   /* ---------- 출제(assignment) 구성 ---------- */
   function buildAssignment(spec, dateStr) {
@@ -49,7 +54,8 @@
     // 이번에 출제한 문제 시그니처를 기록(이후 출제에서 중복 회피). 최근 1000개만 유지.
     problems.forEach((p) => state.issued.push(p.promptHtml));
     if (state.issued.length > 1000) state.issued = state.issued.slice(-1000);
-    return { levelId: spec.levelId, count: spec.count, meta, problems, date: dateStr, status: "pending", answers: {}, result: null };
+    // locked: 채점에서 정답 처리되어 고정된 문제 id 목록 (다시 풀기 시 유지)
+    return { levelId: spec.levelId, count: spec.count, meta, problems, date: dateStr, status: "pending", answers: {}, result: null, locked: [] };
   }
 
   // 오늘의 문제 보장: 명시적 당일 출제가 있으면 유지, 없으면 스케줄/오버라이드로 생성
@@ -111,7 +117,7 @@
         <button class="lock-btn" data-act="to-parent" aria-label="부모님 모드">🔒 부모님</button>
       </header>`;
     }
-    const tabs = [["assign", "출제하기"], ["schedule", "스케줄"], ["answers", "정답확인"], ["settings", "설정"]];
+    const tabs = [["assign", "출제하기"], ["schedule", "스케줄"], ["answers", "정답확인"], ["history", "제출기록"], ["settings", "설정"]];
     return `
       <header class="topbar parent">
         <div class="brand">일일수학 <span class="brand-sub">부모님</span></div>
@@ -130,16 +136,17 @@
         <div class="empty">오늘은 아직 출제된 문제가 없어요.<br>부모님께 문제를 내달라고 해보세요!</div>`;
     }
     const submitted = asg.status === "submitted";
+    const hasWrong = submitted && asg.result && asg.result.wrong.length > 0;
     const banner = submitted && asg.result
       ? `<div class="result-banner ${asg.result.wrong.length === 0 ? "ok" : "bad"}">
            채점 결과: ${asg.result.total}문제 중 <b>${asg.result.score}개</b> 정답
-           ${asg.result.wrong.length ? `· 틀린 문제: ${asg.result.wrong.join(", ")}번` : "· 모두 정답!"}
+           ${asg.result.wrong.length ? `· 틀린 문제: ${asg.result.wrong.join(", ")}번 (빨간 문제를 다시 풀어요)` : "· 모두 정답!"}
          </div>` : "";
     return `
       <div class="page-title"><h1>오늘의 문제</h1></div>
       ${banner}
       ${renderWorksheet(asg, { interactive: !submitted, showAnswers: false, result: submitted ? asg.result : null })}
-      ${submitted ? `<div class="action-row"><button class="btn btn-primary" data-act="redo">다시 풀기</button></div>` : ""}`;
+      ${hasWrong ? `<div class="action-row"><button class="btn btn-primary" data-act="redo">틀린 문제 다시 풀기</button></div>` : ""}`;
   }
 
   /* ---------- 부모님 모드 ---------- */
@@ -148,6 +155,7 @@
     if (parentTab === "assign") return renderAssign();
     if (parentTab === "schedule") return renderSchedule();
     if (parentTab === "answers") return renderAnswers();
+    if (parentTab === "history") return renderHistory();
     if (parentTab === "settings") return renderSettings();
     return "";
   }
@@ -255,6 +263,29 @@
       </div>`;
   }
 
+  function renderHistory() {
+    const hist = state.history || [];
+    if (!hist.length) {
+      return `<div class="panel"><h2>제출 기록</h2><p class="muted">아직 학생의 제출 기록이 없습니다.</p></div>`;
+    }
+    const rows = hist.map((r) => {
+      const perfect = r.wrong.length === 0;
+      return `
+        <div class="hist-row ${perfect ? "ok" : "bad"}">
+          <div class="hist-time">${fmtDateTime(r.at)}</div>
+          <div class="hist-sub">${r.gradeLabel} · ${escapeHtml(r.level)}</div>
+          <div class="hist-score">${r.score}<span>/${r.total}</span></div>
+          <div class="hist-wrong">${perfect ? "🎉 만점" : "틀린 문제 " + r.wrong.join(", ") + "번"}</div>
+        </div>`;
+    }).join("");
+    return `
+      <div class="panel">
+        <h2>제출 기록</h2>
+        <p class="muted">학생이 제출한 이력입니다. (제출 시간 · 점수 · 틀린 문제 번호)</p>
+        <div class="hist-list">${rows}</div>
+      </div>`;
+  }
+
   function renderSettings() {
     return `
       <div class="panel">
@@ -273,29 +304,35 @@
   /* ---------- 문제지(worksheet) 렌더 ---------- */
   function renderWorksheet(asg, opts) {
     const m = asg.meta;
+    const locked = asg.locked || [];
     const cells = asg.problems.map((p) => {
+      const isLocked = locked.includes(p.id);            // 정답 확정 → 고정/유지
+      const isWrong = opts.result && opts.result.wrong.includes(p.id);
       let html = p.promptHtml;
       // 빈칸을 답/정답/입력값으로 치환
       html = html.replace(/<span class="blank" data-bi="(\d+)"[^>]*><\/span>/g, (mt, bi) => {
         bi = +bi;
         const key = p.id + "_" + bi;
+        // 부모 정답지: 정답 노출
         if (opts.showAnswers) {
           return `<span class="blank answer">${escapeHtml(p.blanks[bi])}</span>`;
         }
         const val = asg.answers[key];
-        let cls = "blank";
-        let inner = val != null && val !== "" ? escapeHtml(val) : "";
-        if (opts.result) {
-          const ok = answersEqual(val, p.blanks[bi]);
-          cls += ok ? " correct" : " wrong";
-          if (!ok) inner = `<span class="bad-val">${inner || "·"}</span><span class="fix">${escapeHtml(p.blanks[bi])}</span>`;
-        } else if (val != null && val !== "") {
-          cls += " filled";
+        const shown = val != null && val !== "" ? escapeHtml(val) : "";
+        // 정답으로 고정된 문제: 초록 표시 + 비활성 (다시 풀기에도 유지)
+        if (isLocked) {
+          return `<span class="blank correct">${shown}</span>`;
         }
+        // 제출 후 틀린 문제: 빨강 표시. 단, 정답은 노출하지 않음(학생).
+        if (opts.result) {
+          return `<span class="blank wrong"><span class="bad-val">${shown || "·"}</span></span>`;
+        }
+        // 풀이 중: 입력 가능
+        const cls = "blank" + (shown ? " filled" : "");
         const attrs = opts.interactive ? ` data-blank="${key}" tabindex="0" role="button"` : "";
-        return `<span class="${cls}"${attrs}>${inner}</span>`;
+        return `<span class="${cls}"${attrs}>${shown}</span>`;
       });
-      const pcls = "prob" + (opts.result && opts.result.wrong.includes(p.id) ? " prob-wrong" : "") + (opts.result && !opts.result.wrong.includes(p.id) ? " prob-correct" : "");
+      const pcls = "prob" + (isLocked ? " prob-correct" : isWrong ? " prob-wrong" : "");
       return `<div class="${pcls}"><span class="prob-no">${p.id}</span><div class="prob-body">${html}</div></div>`;
     }).join("");
     return `
@@ -405,7 +442,8 @@
         title: "다 풀었어요!",
         bodyHtml: `<p class="modal-text">답을 모두 입력했어요. 제출할까요?</p>`,
         buttons: [
-          { label: "다시 풀기", kind: "ghost", onClick: () => { Modal.close(); doRedo(); } },
+          // 제출 전 "다시 풀기"는 닫기만 — 답란을 다시 눌러 고쳐 쓸 수 있음(지우지 않음)
+          { label: "다시 풀기", kind: "ghost", onClick: () => Modal.close() },
           { label: "제출하기", kind: "primary", onClick: () => { Modal.close(); doSubmit(); } },
         ],
       });
@@ -417,19 +455,40 @@
     const result = grade(asg);
     asg.status = "submitted";
     asg.result = result;
+    // 정답 문제를 고정(locked) — 다시 풀기 시 유지
+    if (!Array.isArray(asg.locked)) asg.locked = [];
+    asg.problems.forEach((p) => {
+      if (!result.wrong.includes(p.id) && !asg.locked.includes(p.id)) asg.locked.push(p.id);
+    });
+    // 부모님 모드 제출 기록 (제출시간/점수/틀린 번호)
+    if (!Array.isArray(state.history)) state.history = [];
+    state.history.unshift({
+      at: new Date().toISOString(),
+      gradeLabel: asg.meta.gradeLabel,
+      level: asg.meta.level,
+      score: result.score,
+      total: result.total,
+      wrong: result.wrong.slice(),
+    });
+    if (state.history.length > 100) state.history = state.history.slice(0, 100);
     saveState();
     render();
     if (result.wrong.length === 0) {
       Modal.alert("🎉 만점!", "수고했어요. 엄마에게 자랑해요!");
     } else {
-      Modal.alert("채점 완료", `${result.total}문제 중 ${result.score}개 맞았어요.\n틀린 문제: ${result.wrong.join(", ")}번\n(빨간색으로 표시된 문제를 확인해요.)`);
+      Modal.alert("채점 완료", `${result.total}문제 중 ${result.score}개 맞았어요.\n틀린 문제: ${result.wrong.join(", ")}번\n빨간색으로 표시된 문제를 다시 풀어볼까요?`);
     }
   }
 
+  // 다시 풀기: 정답으로 고정된 문제는 그대로 두고, 틀린/미입력 문제의 답만 초기화
   function doRedo() {
     const asg = state.assignment;
     if (!asg) return;
-    asg.answers = {};
+    const locked = asg.locked || [];
+    asg.problems.forEach((p) => {
+      if (locked.includes(p.id)) return;
+      p.blanks.forEach((_, bi) => { delete asg.answers[p.id + "_" + bi]; });
+    });
     asg.status = "pending";
     asg.result = null;
     saveState();
