@@ -115,16 +115,9 @@
     setBusy(true);
     setStatus("인식하고 있어요…");
     try {
-      const dataUrl = canvas.toDataURL("image/png");
-      const res = await fetch("/api/ocr", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ image: dataUrl }),
-      });
-      const data = await res.json();
-      const digits = (data && data.digits) ? String(data.digits) : "";
+      const digits = await Recognizer.recognize(canvas);
       if (!digits) {
-        setStatus("숫자를 알아보지 못했어요. 다시 써볼까요?", "err");
+        setStatus("숫자를 알아보지 못했어요. 더 크고 또렷하게 써볼까요?", "err");
         setBusy(false);
         return;
       }
@@ -152,6 +145,7 @@
     cb = { onComplete: opts.onComplete, onCancel: opts.onCancel };
     if (opts.title) overlay.querySelector(".hw-title").textContent = opts.title;
     setBusy(false);
+    if (window.Recognizer) Recognizer.warmup(); // 모델/런타임 선로딩
     overlay.classList.add("show");
     document.body.classList.add("no-scroll");
     // 표시 후 크기 측정 (display 적용 뒤)

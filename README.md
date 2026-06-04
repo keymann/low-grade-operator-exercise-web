@@ -1,9 +1,9 @@
 # 일일수학 클론 — 손글씨 연산 연습 웹앱
 
 [일일수학(11math.com)](https://www.11math.com/calc) 스타일의 초등 연산 문제지를 클론한 웹앱입니다.
-학생은 **손글씨로 답을 쓰면 OCR로 숫자로 변환**되어 채점되고, 부모님은 학년·세부 항목별로 문제를 출제하거나 요일별 스케줄을 관리할 수 있습니다.
+학생은 **손글씨로 답을 쓰면 클라이언트 측 MNIST 모델이 숫자로 변환**해 채점하고, 부모님은 학년·세부 항목별로 문제를 출제하거나 요일별 스케줄을 관리할 수 있습니다.
 
-Cloudflare Workers(정적 자산 서빙 + Workers AI OCR)로 동작하며, 모바일/태블릿/데스크탑 반응형입니다.
+Cloudflare Workers(정적 자산 서빙)로 배포하며, 손글씨 숫자 인식은 **브라우저에서 ONNX Runtime Web + MNIST 모델**로 완전히 오프라인 동작합니다(서버 추론 없음). 모바일/태블릿/데스크탑 반응형입니다.
 
 ## 주요 기능
 
@@ -32,22 +32,36 @@ public/
   index.html       # SPA 셸
   styles.css       # 반응형 스타일 (일일수학 비주얼)
   problems.js      # 커리큘럼 카탈로그 + 문제 생성기
-  handwriting.js   # 손글씨 캔버스 팝업 + OCR 호출
+  recognizer.js    # 손글씨 숫자 인식 (전처리·분할 + ONNX MNIST 추론)
+  handwriting.js   # 손글씨 캔버스 팝업 (recognizer 호출)
   app.js           # 모드/상태/학생·부모 흐름
+  vendor/ort/      # ONNX Runtime Web (오프라인용 동봉)
+  models/          # mnist-12.onnx (MNIST 분류 모델)
 src/
-  index.ts         # Worker: 정적 자산 + POST /api/ocr (Workers AI 비전 OCR)
+  index.ts         # Worker: 정적 자산 서빙
   types.ts
 ```
 
 상태(비밀번호, 스케줄, 출제/채점 결과)는 브라우저 `localStorage`에 저장됩니다.
 
+## 손글씨 숫자 인식 (클라이언트 MNIST)
+
+`recognizer.js`가 브라우저에서 다음을 수행합니다 (서버/네트워크 추론 없음):
+
+1. 캔버스 잉크를 **이진 마스크**로 변환
+2. **열 투영**으로 좌→우 숫자 단위 분할 (다자리 수 지원, 소수점 보수적 인식)
+3. 각 숫자를 **MNIST 규격(28×28, 무게중심 중앙 정렬)**으로 정규화
+4. **ONNX Runtime Web**으로 `mnist-12.onnx` 추론 → 자리별 숫자 결합
+
+> 인쇄체/획 기반 테스트에서 단일 숫자 10/10, 다자리(24·88·15·10·7) 모두 정확 인식 확인.
+
 ## 개발 / 실행
 
 ```bash
 npm install
-npm run dev      # http://localhost:8787 (Workers AI OCR는 Cloudflare 계정 사용)
+npm run dev      # wrangler dev (정적 서빙)
 npm run check    # 타입체크 + 배포 dry-run
 npm run deploy
 ```
 
-손글씨 OCR은 Workers AI 비전 모델(`@cf/meta/llama-3.2-11b-vision-instruct`)을 사용합니다.
+> 인식 모델/런타임은 `public/vendor`, `public/models`에 동봉되어 있어 별도 설치가 필요 없습니다.
