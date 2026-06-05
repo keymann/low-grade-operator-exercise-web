@@ -424,6 +424,7 @@
   /* ---------- 학생: 빈칸 입력 ---------- */
   function openBlank(key) {
     HW.open({
+      problemHtml: buildProblemHtml(key),
       onComplete: (digits) => {
         state.assignment.answers[key] = digits;
         saveState();
@@ -431,6 +432,25 @@
         afterFill();
       },
     });
+  }
+
+  // 손글씨 팝업 상단에 보여줄 문제 HTML (현재 입력 중인 빈칸은 강조)
+  function buildProblemHtml(key) {
+    const asg = state.assignment;
+    if (!asg) return "";
+    const us = key.lastIndexOf("_");
+    const pid = +key.slice(0, us);
+    const activeBi = +key.slice(us + 1);
+    const p = asg.problems.find((x) => x.id === pid);
+    if (!p) return "";
+    const body = p.promptHtml.replace(/<span class="blank" data-bi="(\d+)"[^>]*><\/span>/g, (mt, bi) => {
+      bi = +bi;
+      const val = asg.answers[p.id + "_" + bi];
+      const shown = val != null && val !== "" ? escapeHtml(val) : "";
+      if (bi === activeBi) return `<span class="blank active">${shown}</span>`;
+      return `<span class="blank${shown ? " filled" : ""}">${shown}</span>`;
+    });
+    return `<span class="prob-no">${p.id}</span><div class="prob-body">${body}</div>`;
   }
 
   function afterFill() {

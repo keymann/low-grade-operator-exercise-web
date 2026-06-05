@@ -18,6 +18,8 @@
     overlay.className = "hw-overlay";
     overlay.innerHTML = `
       <div class="hw-popup" role="dialog" aria-modal="true" aria-label="손글씨 입력">
+        <div class="hw-problem"></div>
+        <div class="hw-divider"></div>
         <div class="hw-title">답을 손글씨로 써주세요</div>
         <div class="hw-canvas-wrap">
           <canvas class="hw-canvas"></canvas>
@@ -144,6 +146,17 @@
     if (!overlay) build();
     cb = { onComplete: opts.onComplete, onCancel: opts.onCancel };
     if (opts.title) overlay.querySelector(".hw-title").textContent = opts.title;
+    // 선택한 문제를 상단에 표시
+    const probEl = overlay.querySelector(".hw-problem");
+    if (opts.problemHtml) {
+      probEl.innerHTML = opts.problemHtml;
+      probEl.style.display = "";
+      overlay.querySelector(".hw-divider").style.display = "";
+    } else {
+      probEl.innerHTML = "";
+      probEl.style.display = "none";
+      overlay.querySelector(".hw-divider").style.display = "none";
+    }
     setBusy(false);
     if (window.Recognizer) Recognizer.warmup(); // 모델/런타임 선로딩
     overlay.classList.add("show");
