@@ -165,6 +165,18 @@ button { font-family: inherit; cursor: pointer; }
   background: #fff; border-radius: 16px; padding: 18px; width: 100%; max-width: 420px;
   box-shadow: 0 20px 50px rgba(0,0,0,.3);
 }
+.hw-problem {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  flex-wrap: wrap; text-align: center; padding: 4px 0 12px;
+}
+.hw-problem .prob-no {
+  flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%;
+  background: #eef2ff; color: var(--blue); font-size: 13px; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.hw-problem .prob-body { display: inline-flex; align-items: center; }
+.hw-problem .blank.active { border-color: var(--blue); background: #eaf1ff; }
+.hw-divider { height: 1px; background: #e5e9f0; margin: 0 0 12px; }
 .hw-title { font-weight: 700; font-size: 16px; margin-bottom: 12px; text-align: center; }
 .hw-canvas-wrap { position: relative; }
 .hw-canvas {
