@@ -159,6 +159,19 @@ button { font-family: inherit; cursor: pointer; }
   font-size: 15px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink);
   width: 100%; min-width: 0; box-sizing: border-box;
 }
+/* iOS Safari 버그: <input type=date> 가 width:100%/min-width:0 을 무시하고 내재 폭으로
+   렌더되어 셀(팝업)을 넘침. iOS 에서만 네이티브 외형을 제거해 폭 제어가 먹도록 한다.
+   (iOS 날짜 입력은 외형 제거 후에도 탭 시 휠 피커가 정상 동작. 데스크톱 Chromium 등은
+   @supports 조건에 안 걸려 영향 없음 → 피커 인디케이터 유지.) */
+@supports (-webkit-touch-callout: none) {
+  .field input[type="date"] {
+    -webkit-appearance: none; appearance: none;
+    min-height: 44px;                 /* 외형 제거 시 탭 높이 보정 */
+    text-align: left;
+  }
+  .field input[type="date"]::-webkit-date-and-time-value { text-align: left; }
+  .field input[type="date"]::-webkit-datetime-edit { padding: 0; }
+}
 .action-row { margin-top: 18px; display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
 
 /* 버튼 */
