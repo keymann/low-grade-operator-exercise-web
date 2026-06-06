@@ -262,6 +262,22 @@ button { font-family: inherit; cursor: pointer; }
   .ach-rec-p { text-align: left; }
 }
 
+/* ---------- 로그인 / 회원가입 ---------- */
+.auth-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.auth-card {
+  width: 100%; max-width: 380px; background: var(--paper);
+  border: 1px solid var(--line); border-radius: 16px; padding: 28px 24px;
+  box-shadow: 0 8px 30px rgba(31,48,80,.10);
+}
+.auth-brand { color: var(--navy); font-size: 26px; text-align: center; margin-bottom: 6px; }
+.auth-title { font-size: 18px; font-weight: 700; text-align: center; margin: 4px 0 20px; color: #374151; }
+.auth-card .field { margin-bottom: 14px; }
+.auth-card .field label .hint { font-weight: 500; color: var(--muted); font-size: 12px; }
+.auth-err { color: var(--bad); font-size: 13px; min-height: 18px; margin: 2px 0 10px; text-align: center; }
+.auth-btn { width: 100%; padding: 13px; }
+.auth-switch { text-align: center; font-size: 14px; color: var(--muted); margin-top: 16px; }
+.auth-switch a { color: var(--blue); font-weight: 700; text-decoration: none; }
+
 /* ---------- 반응형 ---------- */
 @media (max-width: 640px) {
   .ws-grid { grid-template-columns: 1fr; gap: 12px 0; }
