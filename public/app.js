@@ -1,31 +1,86 @@
 /*
  * app.js — 일일수학 클론 메인 앱
  *  - 학생 모드 / 부모님 모드(비밀번호)
- *  - 출제, 스케줄, 설정, 정답확인
- *  - 손글씨 + OCR 답 입력, 채점
+ *  - 출제, 스케줄, 정답확인, 제출기록, 성취도, 설정
+ *  - numberpad 답 입력, 채점
+ *  - 상태는 Cloudflare KV(/api/state)에 저장되어 여러 브라우저에서 공유된다.
  */
 (function () {
   "use strict";
 
-  const STORE_KEY = "ilmath_state_v1";
+  const STORE_KEY = "ilmath_state_v2";
   const DEFAULT_PW = "kw20021163";
   const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
   const WEEKDAY_KO = { sun: "일", mon: "월", tue: "화", wed: "수", thu: "목", fri: "금", sat: "토" };
 
   /* ---------- 상태 ---------- */
-  let state = loadState();
+  let state = defaultState();
   let mode = "student";          // 'student' | 'parent'
   let parentUnlocked = false;    // 세션 동안만 유효
-  let parentTab = "assign";      // 'assign' | 'schedule' | 'answers' | 'settings'
+  let parentTab = "assign";      // 'assign' | 'schedule' | 'answers' | 'history' | 'achievement' | 'settings'
+  let dirty = false;             // 로컬 변경이 서버에 아직 반영되지 않음
+  let saveTimer = null;
 
-  function loadState() {
+  function defaultState() { return normalizeState({}); }
+  function normalizeState(s) {
+    s = s || {};
+    return {
+      password: s.password || DEFAULT_PW,
+      schedule: s.schedule || {},
+      scheduleOverrides: s.scheduleOverrides || {},
+      assignment: s.assignment || null,
+      issued: Array.isArray(s.issued) ? s.issued : [],
+      history: Array.isArray(s.history) ? s.history : [],
+    };
+  }
+
+  // 서버(KV)에서 상태 로드. 실패 시 localStorage 캐시 폴백.
+  async function loadState() {
+    try {
+      const res = await fetch("/api/state", { cache: "no-store" });
+      if (res.ok) {
+        const j = await res.json();
+        if (j && typeof j === "object") { cacheLocal(j); return normalizeState(j); }
+      }
+    } catch (e) {}
     try {
       const raw = localStorage.getItem(STORE_KEY);
-      if (raw) return JSON.parse(raw);
+      if (raw) return normalizeState(JSON.parse(raw));
     } catch (e) {}
-    return { password: DEFAULT_PW, schedule: {}, scheduleOverrides: {}, assignment: null, issued: [], history: [] };
+    return defaultState();
   }
-  function saveState() { localStorage.setItem(STORE_KEY, JSON.stringify(state)); }
+
+  function cacheLocal(obj) { try { localStorage.setItem(STORE_KEY, JSON.stringify(obj)); } catch (e) {} }
+
+  // 로컬 즉시 저장 + 디바운스 서버 PUT
+  function saveState() {
+    cacheLocal(state);
+    dirty = true;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(pushState, 500);
+  }
+  function pushState() {
+    const body = JSON.stringify(state);
+    try {
+      fetch("/api/state", { method: "PUT", headers: { "Content-Type": "application/json" }, body })
+        .then(() => { dirty = false; })
+        .catch(() => {});
+    } catch (e) {}
+  }
+
+  // 다른 브라우저의 변경을 반영(편집 중이 아닐 때만)
+  async function refreshFromServer() {
+    if (dirty || Numberpad.isOpen()) return;
+    try {
+      const res = await fetch("/api/state", { cache: "no-store" });
+      if (!res.ok) return;
+      const j = await res.json();
+      if (j && typeof j === "object") {
+        const next = JSON.stringify(normalizeState(j));
+        if (next !== JSON.stringify(state)) { state = JSON.parse(next); cacheLocal(state); render(); }
+      }
+    } catch (e) {}
+  }
 
   /* ---------- 날짜 헬퍼 ---------- */
   function dateKey(d) {
@@ -43,19 +98,19 @@
     const p = (n) => String(n).padStart(2, "0");
     return `${d.getMonth() + 1}월 ${d.getDate()}일 (${WEEKDAY_KO[WEEKDAYS[d.getDay()]]}) ${p(d.getHours())}:${p(d.getMinutes())}`;
   }
+  function fmtTime(iso) { const d = new Date(iso); const p = (n) => String(n).padStart(2, "0"); return `${p(d.getHours())}:${p(d.getMinutes())}`; }
 
   /* ---------- 출제(assignment) 구성 ---------- */
   function buildAssignment(spec, dateStr) {
     if (!Array.isArray(state.issued)) state.issued = [];
     const exclude = new Set(state.issued);
-    const problems = Curriculum.generateSet(spec.levelId, spec.count, exclude);
-    const meta = Curriculum.levelMeta(spec.levelId);
+    const problems = Curriculum.generateSet(spec.itemId, spec.count, exclude);
+    const meta = Curriculum.itemMeta(spec.itemId);
     if (!problems || !meta) return null;
-    // 이번에 출제한 문제 시그니처를 기록(이후 출제에서 중복 회피). 최근 1000개만 유지.
+    // 이번에 출제한 문제 시그니처를 기록(이후 출제에서 중복 회피). 최근 2000개만 유지.
     problems.forEach((p) => state.issued.push(p.promptHtml));
-    if (state.issued.length > 1000) state.issued = state.issued.slice(-1000);
-    // locked: 채점에서 정답 처리되어 고정된 문제 id 목록 (다시 풀기 시 유지)
-    return { levelId: spec.levelId, count: spec.count, meta, problems, date: dateStr, status: "pending", answers: {}, result: null, locked: [] };
+    if (state.issued.length > 2000) state.issued = state.issued.slice(-2000);
+    return { itemId: spec.itemId, count: spec.count, meta, problems, date: dateStr, status: "pending", answers: {}, result: null, locked: [] };
   }
 
   // 오늘의 문제 보장: 명시적 당일 출제가 있으면 유지, 없으면 스케줄/오버라이드로 생성
@@ -63,11 +118,10 @@
     const t = today();
     if (state.assignment && state.assignment.date === t) return;
     const spec = state.scheduleOverrides[t] || state.schedule[weekdayOf(t)];
-    if (spec && spec.levelId) {
+    if (spec && spec.itemId) {
       const a = buildAssignment(spec, t);
       if (a) { state.assignment = a; saveState(); return; }
     }
-    // 오늘 예정된 문제 없음 → 지난 출제는 비운다
     if (state.assignment && state.assignment.date !== t) { state.assignment = null; saveState(); }
   }
 
@@ -117,7 +171,7 @@
         <button class="lock-btn" data-act="to-parent" aria-label="부모님 모드">🔒 부모님</button>
       </header>`;
     }
-    const tabs = [["assign", "출제하기"], ["schedule", "스케줄"], ["answers", "정답확인"], ["history", "제출기록"], ["settings", "설정"]];
+    const tabs = [["assign", "출제하기"], ["schedule", "스케줄"], ["answers", "정답확인"], ["history", "제출기록"], ["achievement", "성취도"], ["settings", "설정"]];
     return `
       <header class="topbar parent">
         <div class="brand">일일수학 <span class="brand-sub">부모님</span></div>
@@ -156,48 +210,42 @@
     if (parentTab === "schedule") return renderSchedule();
     if (parentTab === "answers") return renderAnswers();
     if (parentTab === "history") return renderHistory();
+    if (parentTab === "achievement") return renderAchievement();
     if (parentTab === "settings") return renderSettings();
     return "";
   }
 
-  // 학년/단원/단계 선택 UI 공용 빌더
+  // 학년군/세부항목 선택 UI 공용 빌더
   function selectorHtml(prefix, sel) {
-    const grades = Curriculum.GRADES;
-    const grade = Curriculum.findGrade(sel.gradeId) || grades[0];
-    const units = grade.units;
-    const uIdx = Math.min(sel.unitIdx ?? 0, units.length - 1);
-    const unit = units[uIdx];
-    const levels = unit.levels;
-    const level = levels.find((l) => l.id === sel.levelId) || levels[0];
+    const groups = activeGroups();
+    const group = Curriculum.findGroup(sel.groupId) || groups[0];
+    const items = group.items;
+    const item = items.find((it) => it.id === sel.itemId) || items[0];
     return `
       <div class="field">
-        <label>학년</label>
-        <select data-sel="${prefix}-grade">
-          ${grades.map((g) => `<option value="${g.id}" ${g.id === grade.id ? "selected" : ""}>${g.label}</option>`).join("")}
-        </select>
-      </div>
-      <div class="field">
-        <label>단원</label>
-        <select data-sel="${prefix}-unit">
-          ${units.map((u, i) => `<option value="${i}" ${i === uIdx ? "selected" : ""}>${u.sem} ${u.name}</option>`).join("")}
+        <label>학년군</label>
+        <select data-sel="${prefix}-group">
+          ${groups.map((g) => `<option value="${g.id}" ${g.id === group.id ? "selected" : ""}>${g.label}</option>`).join("")}
         </select>
       </div>
       <div class="field">
         <label>세부 항목</label>
-        <select data-sel="${prefix}-level">
-          ${levels.map((l) => `<option value="${l.id}" ${l.id === level.id ? "selected" : ""}>${l.name}</option>`).join("")}
+        <select data-sel="${prefix}-item">
+          ${items.map((it) => `<option value="${it.id}" ${it.id === item.id ? "selected" : ""}>${escapeHtml(it.hint)} · ${escapeHtml(it.name)}</option>`).join("")}
         </select>
       </div>`;
   }
 
-  let assignSel = { gradeId: "1", unitIdx: 0, levelId: null, count: 10 };
+  function activeGroups() { return Curriculum.GROUPS.filter((g) => g.items.length); }
+
+  let assignSel = { groupId: "g34", itemId: null, count: 10 };
   function renderAssign() {
     syncSel(assignSel);
     const cur = state.assignment;
     return `
       <div class="panel">
         <h2>문제 출제</h2>
-        <p class="muted">학년과 세부 항목, 문제 개수를 선택해 지금 바로 학생에게 출제합니다.</p>
+        <p class="muted">학년군과 세부 항목, 문제 개수를 선택해 지금 바로 학생에게 출제합니다.</p>
         <div class="form-grid">
           ${selectorHtml("assign", assignSel)}
           <div class="field">
@@ -206,24 +254,24 @@
           </div>
         </div>
         <div class="action-row">
+          <button class="btn btn-ghost" data-act="del-assign" ${cur ? "" : "disabled"}>출제 문제 삭제</button>
           <button class="btn btn-primary" data-act="do-assign">학생에게 출제하기</button>
         </div>
-        ${cur ? `<div class="note">현재 출제됨: <b>${cur.meta.gradeLabel} · ${cur.meta.level}</b> (${cur.problems.length}문제, ${fmtDate(cur.date)})
+        ${cur ? `<div class="note">현재 출제됨: <b>${cur.meta.groupLabel} · ${escapeHtml(cur.meta.name)}</b> (${cur.problems.length}문제, ${fmtDate(cur.date)})
           ${cur.status === "submitted" && cur.result ? ` · 결과 ${cur.result.score}/${cur.result.total}` : " · 풀이 대기중"}</div>` : ""}
       </div>`;
   }
 
-  // 선택 객체 정합성 보정 (학년/단원 바뀌면 levelId 갱신)
+  // 선택 객체 정합성 보정 (학년군 바뀌면 itemId 갱신)
   function syncSel(sel) {
-    const grade = Curriculum.findGrade(sel.gradeId) || Curriculum.GRADES[0];
-    sel.gradeId = grade.id;
-    if (sel.unitIdx == null || sel.unitIdx >= grade.units.length) sel.unitIdx = 0;
-    const unit = grade.units[sel.unitIdx];
-    if (!unit.levels.find((l) => l.id === sel.levelId)) sel.levelId = unit.levels[0].id;
+    const groups = activeGroups();
+    let group = Curriculum.findGroup(sel.groupId);
+    if (!group || !group.items.length) group = groups[0];
+    sel.groupId = group.id;
+    if (!group.items.find((it) => it.id === sel.itemId)) sel.itemId = group.items[0].id;
   }
 
   function renderSchedule() {
-    // 오늘부터 7일
     const rows = [];
     const base = new Date();
     for (let i = 0; i < 7; i++) {
@@ -232,7 +280,7 @@
       const override = state.scheduleOverrides[ds];
       const recurring = state.schedule[wd];
       const eff = override || recurring;
-      const metaTxt = eff && eff.levelId ? (() => { const m = Curriculum.levelMeta(eff.levelId); return m ? `${m.gradeLabel} · ${m.level} (${eff.count}문제)` : "없음"; })() : "없음";
+      const metaTxt = eff && eff.itemId ? (() => { const m = Curriculum.itemMeta(eff.itemId); return m ? `${m.groupLabel} · ${escapeHtml(m.name)} (${eff.count}문제)` : "없음"; })() : "없음";
       rows.push(`
         <div class="sch-row">
           <div class="sch-date">${fmtDate(ds)}${i === 0 ? ' <span class="badge">오늘</span>' : ""}${override ? ' <span class="badge alt">개별</span>' : ""}</div>
@@ -243,7 +291,7 @@
     return `
       <div class="panel">
         <h2>주간 스케줄</h2>
-        <p class="muted">요일별로 반복 출제할 문제를 설정합니다. 편집 시 "이 날짜만" 또는 "같은 요일 모두"를 선택할 수 있어요.</p>
+        <p class="muted">요일별로 반복 출제할 문제를 설정합니다. 편집 시 "이 날짜만" 또는 "반복 등록"(같은 요일 모두)을 선택할 수 있어요.</p>
         <div class="sch-list">${rows.join("")}</div>
       </div>`;
   }
@@ -257,7 +305,7 @@
     return `
       <div class="panel">
         <h2>정답 확인</h2>
-        <p class="muted">현재 학생에게 출제된 문제(${asg.meta.gradeLabel} · ${asg.meta.level})의 정답지입니다.</p>
+        <p class="muted">현재 학생에게 출제된 문제(${asg.meta.groupLabel} · ${escapeHtml(asg.meta.name)})의 정답지입니다.</p>
         ${resultTxt}
         ${renderWorksheet(asg, { interactive: false, showAnswers: true, result: asg.status === "submitted" ? asg.result : null })}
       </div>`;
@@ -270,10 +318,11 @@
     }
     const rows = hist.map((r) => {
       const perfect = r.wrong.length === 0;
+      const name = r.name || r.level || "";
       return `
         <div class="hist-row ${perfect ? "ok" : "bad"}">
           <div class="hist-time">${fmtDateTime(r.at)}</div>
-          <div class="hist-sub">${r.gradeLabel} · ${escapeHtml(r.level)}</div>
+          <div class="hist-sub">${r.groupLabel || ""} · ${escapeHtml(name)}</div>
           <div class="hist-score">${r.score}<span>/${r.total}</span></div>
           <div class="hist-wrong">${perfect ? "🎉 만점" : "틀린 문제 " + r.wrong.join(", ") + "번"}</div>
         </div>`;
@@ -284,6 +333,87 @@
         <p class="muted">학생이 제출한 이력입니다. (제출 시간 · 점수 · 틀린 문제 번호)</p>
         <div class="hist-list">${rows}</div>
       </div>`;
+  }
+
+  /* ---------- 성취도 대시보드 ---------- */
+  let achTab = "day";       // 'day' | 'month'
+  let achDate = null;       // YYYY-MM-DD
+  let achMonth = null;      // YYYY-MM
+
+  function recDate(r) { return dateKey(new Date(r.at)); }
+  function aggregate(recs) {
+    let total = 0, correct = 0;
+    recs.forEach((r) => { total += r.total || 0; correct += r.score || 0; });
+    return { subs: recs.length, total, correct, acc: total ? Math.round((correct / total) * 100) : 0 };
+  }
+  function summaryHtml(agg) {
+    const cards = [["제출 횟수", agg.subs + "회"], ["푼 문제", agg.total + "개"], ["맞은 문제", agg.correct + "개"], ["정답률", agg.acc + "%"]];
+    return `<div class="ach-cards">${cards.map(([k, v]) => `<div class="ach-card"><div class="ach-card-v">${v}</div><div class="ach-card-k">${k}</div></div>`).join("")}</div>`;
+  }
+  function recListHtml(recs) {
+    const rows = recs.slice().sort((a, b) => (a.at < b.at ? 1 : -1)).map((r) => {
+      const acc = r.total ? Math.round((r.score / r.total) * 100) : 0;
+      return `<div class="ach-rec">
+        <span class="ach-rec-t">${fmtTime(r.at)}</span>
+        <span class="ach-rec-n">${escapeHtml(r.name || r.level || "")}</span>
+        <span class="ach-rec-s">${r.score}/${r.total}</span>
+        <span class="ach-bar"><span class="ach-bar-fill ${acc === 100 ? "full" : ""}" style="width:${acc}%"></span></span>
+        <span class="ach-rec-p">${acc}%</span>
+      </div>`;
+    }).join("");
+    return `<div class="ach-recs">${rows}</div>`;
+  }
+
+  function renderAchievement() {
+    const hist = state.history || [];
+    if (!achDate) achDate = today();
+    if (!achMonth) achMonth = today().slice(0, 7);
+    const tabs = `
+      <div class="ach-tabs">
+        <button class="ach-tab ${achTab === "day" ? "active" : ""}" data-ach="day">일 단위</button>
+        <button class="ach-tab ${achTab === "month" ? "active" : ""}" data-ach="month">월 단위</button>
+      </div>`;
+    const body = achTab === "day" ? renderAchDay(hist) : renderAchMonth(hist);
+    return `
+      <div class="panel">
+        <h2>학습 성취도</h2>
+        <p class="muted">학생의 제출 기록을 기간별로 집계해 정답률과 학습량을 보여줍니다.</p>
+        ${tabs}
+        ${body}
+      </div>`;
+  }
+
+  function renderAchDay(hist) {
+    const recs = hist.filter((r) => recDate(r) === achDate);
+    return `
+      <div class="ach-controls">
+        <label>날짜 선택</label>
+        <input type="date" data-sel="ach-date" value="${achDate}">
+      </div>
+      ${summaryHtml(aggregate(recs))}
+      ${recs.length ? recListHtml(recs) : `<div class="note">선택한 날짜에 제출 기록이 없습니다.</div>`}`;
+  }
+
+  function renderAchMonth(hist) {
+    const recs = hist.filter((r) => recDate(r).slice(0, 7) === achMonth);
+    const byDay = {};
+    recs.forEach((r) => { const d = recDate(r); (byDay[d] = byDay[d] || []).push(r); });
+    const days = Object.keys(byDay).sort();
+    const bars = days.map((d) => {
+      const a = aggregate(byDay[d]);
+      return `<div class="ach-bar-row">
+        <span class="ach-bar-day">${+d.slice(8, 10)}일</span>
+        <span class="ach-bar"><span class="ach-bar-fill ${a.acc === 100 ? "full" : ""}" style="width:${a.acc}%"></span></span>
+        <span class="ach-bar-val">${a.acc}% <em>(${a.correct}/${a.total})</em></span>
+      </div>`;
+    }).join("");
+    return `
+      <div class="ach-controls">
+        <label>월 선택</label>
+        <input type="month" data-sel="ach-month" value="${achMonth}">
+      </div>
+      ${summaryHtml(aggregate(recs))}
+      ${days.length ? `<div class="ach-bars">${bars}</div>` : `<div class="note">선택한 달에 제출 기록이 없습니다.</div>`}`;
   }
 
   function renderSettings() {
@@ -306,28 +436,23 @@
     const m = asg.meta;
     const locked = asg.locked || [];
     const cells = asg.problems.map((p) => {
-      const isLocked = locked.includes(p.id);            // 정답 확정 → 고정/유지
+      const isLocked = locked.includes(p.id);
       const isWrong = opts.result && opts.result.wrong.includes(p.id);
       let html = p.promptHtml;
-      // 빈칸을 답/정답/입력값으로 치환
       html = html.replace(/<span class="blank" data-bi="(\d+)"[^>]*><\/span>/g, (mt, bi) => {
         bi = +bi;
         const key = p.id + "_" + bi;
-        // 부모 정답지: 정답 노출
         if (opts.showAnswers) {
           return `<span class="blank answer">${escapeHtml(p.blanks[bi])}</span>`;
         }
         const val = asg.answers[key];
         const shown = val != null && val !== "" ? escapeHtml(val) : "";
-        // 정답으로 고정된 문제: 초록 표시 + 비활성 (다시 풀기에도 유지)
         if (isLocked) {
           return `<span class="blank correct">${shown}</span>`;
         }
-        // 제출 후 틀린 문제: 빨강 표시. 단, 정답은 노출하지 않음(학생).
         if (opts.result) {
           return `<span class="blank wrong"><span class="bad-val">${shown || "·"}</span></span>`;
         }
-        // 풀이 중: 입력 가능
         const cls = "blank" + (shown ? " filled" : "");
         const attrs = opts.interactive ? ` data-blank="${key}" tabindex="0" role="button"` : "";
         return `<span class="${cls}"${attrs}>${shown}</span>`;
@@ -339,14 +464,14 @@
       <div class="worksheet">
         <div class="ws-head">
           <div class="ws-logo">일일수학</div>
-          <div class="ws-info"><div>${m.gradeLabel} ${m.sem}</div><div class="ws-unit">${m.unit}</div><div class="ws-lvl">${m.level}</div></div>
+          <div class="ws-info"><div>${m.groupLabel}</div><div class="ws-unit">${escapeHtml(m.name)}</div><div class="ws-lvl">${escapeHtml(m.hint || "")}</div></div>
         </div>
-        <h4 class="ws-title">${m.title}</h4>
+        <h4 class="ws-title">${escapeHtml(m.title)}</h4>
         <div class="ws-grid">${cells}</div>
       </div>`;
   }
 
-  function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+  function escapeHtml(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 
   /* ---------- 이벤트 바인딩 ---------- */
   function bind() {
@@ -363,14 +488,24 @@
     root.querySelectorAll('[data-sel^="assign-"]').forEach((el) => {
       el.addEventListener("change", () => {
         const k = el.getAttribute("data-sel");
-        if (k === "assign-grade") { assignSel.gradeId = el.value; assignSel.unitIdx = 0; assignSel.levelId = null; syncSel(assignSel); render(); }
-        else if (k === "assign-unit") { assignSel.unitIdx = +el.value; assignSel.levelId = null; syncSel(assignSel); render(); }
-        else if (k === "assign-level") { assignSel.levelId = el.value; }
+        if (k === "assign-group") { assignSel.groupId = el.value; assignSel.itemId = null; syncSel(assignSel); render(); }
+        else if (k === "assign-item") { assignSel.itemId = el.value; }
         else if (k === "assign-count") { assignSel.count = clampInt(el.value, 2, 40, 10); }
       });
     });
 
-    // 학생 빈칸 클릭 → 손글씨
+    // 성취도 컨트롤
+    root.querySelectorAll("[data-ach]").forEach((el) => {
+      el.addEventListener("click", () => { achTab = el.getAttribute("data-ach"); render(); });
+    });
+    root.querySelectorAll('[data-sel="ach-date"]').forEach((el) => {
+      el.addEventListener("change", () => { achDate = el.value || today(); render(); });
+    });
+    root.querySelectorAll('[data-sel="ach-month"]').forEach((el) => {
+      el.addEventListener("change", () => { achMonth = el.value || today().slice(0, 7); render(); });
+    });
+
+    // 학생 빈칸 클릭 → numberpad
     root.querySelectorAll("[data-blank]").forEach((el) => {
       const open = () => openBlank(el.getAttribute("data-blank"));
       el.addEventListener("click", open);
@@ -385,6 +520,7 @@
       case "to-parent": return promptParent();
       case "to-student": mode = "student"; render(); break;
       case "do-assign": return doAssign();
+      case "del-assign": return doDeleteAssign();
       case "redo": return doRedo();
       case "change-pw": return doChangePw();
       case "edit-sch": return editSchedule(el.getAttribute("data-date"));
@@ -414,55 +550,55 @@
   /* ---------- 출제 실행 ---------- */
   function doAssign() {
     syncSel(assignSel);
-    const a = buildAssignment({ levelId: assignSel.levelId, count: assignSel.count }, today());
+    const a = buildAssignment({ itemId: assignSel.itemId, count: assignSel.count }, today());
     if (!a) { Modal.alert("오류", "문제를 생성하지 못했습니다."); return; }
     state.assignment = a;
     saveState();
-    Modal.alert("출제 완료", `${a.meta.gradeLabel} · ${a.meta.level} ${a.problems.length}문제를 학생에게 출제했어요.`, () => render());
+    Modal.alert("출제 완료", `${a.meta.groupLabel} · ${a.meta.name} ${a.problems.length}문제를 학생에게 출제했어요.`, () => render());
   }
 
-  /* ---------- 학생: 빈칸 입력 ---------- */
+  function doDeleteAssign() {
+    if (!state.assignment) return;
+    Modal.show({
+      title: "출제 문제 삭제",
+      bodyHtml: `<p class="modal-text">현재 출제된 문제를 삭제할까요?<br>학생 화면에서도 사라집니다.</p>`,
+      buttons: [
+        { label: "취소", kind: "ghost", onClick: () => Modal.close() },
+        { label: "삭제", kind: "primary", onClick: () => { state.assignment = null; saveState(); Modal.close(); render(); } },
+      ],
+    });
+  }
+
+  /* ---------- 학생: 빈칸 입력 (numberpad) ---------- */
   function openBlank(key) {
-    HW.open({
-      problemHtml: buildProblemHtml(key),
-      onComplete: (digits) => {
-        state.assignment.answers[key] = digits;
-        saveState();
-        render();
-        afterFill();
-      },
-    });
-  }
-
-  // 손글씨 팝업 상단에 보여줄 문제 HTML (현재 입력 중인 빈칸은 강조)
-  function buildProblemHtml(key) {
     const asg = state.assignment;
-    if (!asg) return "";
-    const us = key.lastIndexOf("_");
-    const pid = +key.slice(0, us);
-    const activeBi = +key.slice(us + 1);
-    const p = asg.problems.find((x) => x.id === pid);
-    if (!p) return "";
-    const body = p.promptHtml.replace(/<span class="blank" data-bi="(\d+)"[^>]*><\/span>/g, (mt, bi) => {
-      bi = +bi;
-      const val = asg.answers[p.id + "_" + bi];
-      const shown = val != null && val !== "" ? escapeHtml(val) : "";
-      if (bi === activeBi) return `<span class="blank active">${shown}</span>`;
-      return `<span class="blank${shown ? " filled" : ""}">${shown}</span>`;
+    if (!asg) return;
+    const root = app();
+    root.querySelectorAll(".blank.active").forEach((b) => b.classList.remove("active"));
+    const cell = root.querySelector(`[data-blank="${key}"]`);
+    if (cell) cell.classList.add("active");
+    const pid = +key.slice(0, key.lastIndexOf("_"));
+    Numberpad.open({
+      title: `${pid}번 문제 답 입력`,
+      value: asg.answers[key] || "",
+      onInput: (val) => {
+        asg.answers[key] = val;
+        const c = app().querySelector(`[data-blank="${key}"]`);
+        if (c) { c.textContent = val; c.classList.toggle("filled", !!val); }
+        saveState();
+      },
+      onClose: () => { render(); afterFill(); },
     });
-    return `<span class="prob-no">${p.id}</span><div class="prob-body">${body}</div>`;
   }
 
   function afterFill() {
     const asg = state.assignment;
     if (!asg || asg.status === "submitted") return;
     if (filledBlanks(asg) >= totalBlanks(asg)) {
-      // 모든 답란이 채워짐 → 제출/다시풀기
       Modal.show({
         title: "다 풀었어요!",
         bodyHtml: `<p class="modal-text">답을 모두 입력했어요. 제출할까요?</p>`,
         buttons: [
-          // 제출 전 "다시 풀기"는 닫기만 — 답란을 다시 눌러 고쳐 쓸 수 있음(지우지 않음)
           { label: "다시 풀기", kind: "ghost", onClick: () => Modal.close() },
           { label: "제출하기", kind: "primary", onClick: () => { Modal.close(); doSubmit(); } },
         ],
@@ -475,22 +611,21 @@
     const result = grade(asg);
     asg.status = "submitted";
     asg.result = result;
-    // 정답 문제를 고정(locked) — 다시 풀기 시 유지
     if (!Array.isArray(asg.locked)) asg.locked = [];
     asg.problems.forEach((p) => {
       if (!result.wrong.includes(p.id) && !asg.locked.includes(p.id)) asg.locked.push(p.id);
     });
-    // 부모님 모드 제출 기록 (제출시간/점수/틀린 번호)
     if (!Array.isArray(state.history)) state.history = [];
     state.history.unshift({
       at: new Date().toISOString(),
-      gradeLabel: asg.meta.gradeLabel,
-      level: asg.meta.level,
+      itemId: asg.itemId,
+      groupLabel: asg.meta.groupLabel,
+      name: asg.meta.name,
       score: result.score,
       total: result.total,
       wrong: result.wrong.slice(),
     });
-    if (state.history.length > 100) state.history = state.history.slice(0, 100);
+    if (state.history.length > 500) state.history = state.history.slice(0, 500);
     saveState();
     render();
     if (result.wrong.length === 0) {
@@ -533,8 +668,8 @@
   function editSchedule(ds) {
     const wd = weekdayOf(ds);
     const eff = state.scheduleOverrides[ds] || state.schedule[wd] || {};
-    schSel = { gradeId: "1", unitIdx: 0, levelId: eff.levelId || null, count: eff.count || 10 };
-    if (eff.levelId) { const f = Curriculum.findLevel(eff.levelId); if (f) { schSel.gradeId = f.grade.id; schSel.unitIdx = f.grade.units.indexOf(f.unit); } }
+    schSel = { groupId: "g34", itemId: eff.itemId || null, count: eff.count || 10 };
+    if (eff.itemId) { const f = Curriculum.findItem(eff.itemId); if (f) schSel.groupId = f.group.id; }
     syncSel(schSel);
     Modal.show({
       title: `${fmtDate(ds)} 스케줄 편집`,
@@ -545,11 +680,10 @@
         <p class="muted small">변경 범위를 선택하세요.</p>`,
       buttons: [
         { label: "비우기", kind: "ghost", onClick: () => { delete state.scheduleOverrides[ds]; delete state.schedule[wd]; saveState(); Modal.close(); render(); } },
-        { label: "이 날짜만", kind: "ghost", onClick: () => { state.scheduleOverrides[ds] = { levelId: schSel.levelId, count: schSel.count }; saveState(); Modal.close(); render(); } },
-        { label: "같은 요일 모두", kind: "primary", onClick: () => { state.schedule[wd] = { levelId: schSel.levelId, count: schSel.count }; delete state.scheduleOverrides[ds]; saveState(); Modal.close(); render(); } },
+        { label: "이 날짜만", kind: "ghost", onClick: () => { state.scheduleOverrides[ds] = { itemId: schSel.itemId, count: schSel.count }; saveState(); Modal.close(); render(); } },
+        { label: "반복 등록", kind: "primary", onClick: () => { state.schedule[wd] = { itemId: schSel.itemId, count: schSel.count }; delete state.scheduleOverrides[ds]; saveState(); Modal.close(); render(); } },
       ],
     });
-    // 모달 내 셀렉터 바인딩
     setTimeout(() => bindSchSelectors(), 30);
   }
 
@@ -557,12 +691,10 @@
     document.querySelectorAll('[data-sel^="sch-"]').forEach((el) => {
       el.addEventListener("change", () => {
         const k = el.getAttribute("data-sel");
-        if (k === "sch-grade") { schSel.gradeId = el.value; schSel.unitIdx = 0; schSel.levelId = null; }
-        else if (k === "sch-unit") { schSel.unitIdx = +el.value; schSel.levelId = null; }
-        else if (k === "sch-level") { schSel.levelId = el.value; return; }
+        if (k === "sch-group") { schSel.groupId = el.value; schSel.itemId = null; }
+        else if (k === "sch-item") { schSel.itemId = el.value; return; }
         else if (k === "sch-count") { schSel.count = clampInt(el.value, 2, 40, 10); return; }
         syncSel(schSel);
-        // 셀렉터 재렌더
         const wrap = el.closest(".form-grid");
         const countVal = wrap.querySelector('[data-sel="sch-count"]').value;
         wrap.innerHTML = selectorHtml("sch", schSel) + `<div class="field"><label>문제 개수</label><input type="number" min="2" max="40" data-sel="sch-count" value="${countVal}"></div>`;
@@ -593,7 +725,7 @@
         const btn = document.createElement("button");
         btn.className = "btn " + (b.kind === "primary" ? "btn-primary" : "btn-ghost");
         btn.textContent = b.label;
-        btn.addEventListener("click", () => { if (!b.keepOpen) {} b.onClick && b.onClick(); });
+        btn.addEventListener("click", () => { b.onClick && b.onClick(); });
         bc.appendChild(btn);
       });
       el.classList.add("show");
@@ -611,5 +743,11 @@
   })();
 
   /* ---------- 시작 ---------- */
-  render();
+  (async function init() {
+    state = await loadState();
+    render();
+    // 다른 브라우저의 변경을 반영
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshFromServer(); });
+    window.addEventListener("focus", () => refreshFromServer());
+  })();
 })();

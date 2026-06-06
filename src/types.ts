@@ -5,4 +5,6 @@
 export interface Env {
 	/** Binding for static assets. */
 	ASSETS: { fetch: (request: Request) => Promise<Response> };
+	/** KV namespace storing the shared app state document. */
+	STATE: KVNamespace;
 }

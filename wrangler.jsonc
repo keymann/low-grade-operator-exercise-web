@@ -12,6 +12,10 @@
 		"binding": "ASSETS",
 		"directory": "./public"
 	},
+	// 앱 상태(출제/스케줄/정답/제출기록)를 저장하는 KV. 여러 브라우저 간 상태 공유에 사용.
+	"kv_namespaces": [
+		{ "binding": "STATE", "id": "d2196fbbc52a43d4bb83eb28a7426d9f" }
+	],
 	"observability": {
 		"enabled": true
 	},
