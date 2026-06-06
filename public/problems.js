@@ -236,75 +236,81 @@
 
   /* ---------- 커리큘럼 카탈로그 (학년군 → 세부항목) ---------- */
   let ivc = 0;
-  // I(hint, name, gen) — hint 는 학기 라벨("3-1" 등)
+  // I(name, gen) — 항목이 속한 학기는 그룹(GROUPS)으로 구분한다.
   function makeItem(groupId) {
-    return (hint, name, gen) => ({ id: "I" + (++ivc), group: groupId, hint, name, gen });
+    return (name, gen) => ({ id: "I" + (++ivc), group: groupId, name, gen });
   }
 
-  const I34 = makeItem("g34");
+  const I31 = makeItem("g31"), I32 = makeItem("g32"), I41 = makeItem("g41"), I42 = makeItem("g42");
   const GROUPS = [
-    { id: "g12", label: "1~2학년군", items: [] }, // 추후 추가
     {
-      id: "g34", label: "3~4학년군", items: [
-        // ----- 3학년 1학기 -----
-        I34("3-1", "여러 가지 방법으로 덧셈하기", vBinGen("+", (a, b) => a + b, () => ri(102, 898), () => ri(102, 898))),
-        I34("3-1", "(세 자리 수) + (세 자리 수)", vBinGen("+", (a, b) => a + b, () => ri(123, 888), () => ri(123, 888))),
-        I34("3-1", "여러 가지 방법으로 뺄셈하기", vBinGen("−", (a, b) => a - b, () => ri(345, 999), () => ri(112, 344))),
-        I34("3-1", "(세 자리 수) − (세 자리 수)", vBinGen("−", (a, b) => a - b, () => ri(345, 999), () => ri(112, 344))),
-        I34("3-1", "(네 자리 수) − (세 자리 수)", vBinGen("−", (a, b) => a - b, () => ri(1234, 9876), () => ri(234, 987))),
-        I34("3-1", "덧셈과 뺄셈", vAddSubGen(() => ri(123, 888), () => ri(112, 444))),
-        I34("3-1", "나눗셈 - 똑같이 나누기", divExactGen(() => ri(2, 9), () => ri(1, 9))),
-        I34("3-1", "곱셈구구와 나눗셈", divExactGen(() => ri(2, 9), () => ri(2, 9))),
-        I34("3-1", "나눗셈과 곱셈", divExactGen(() => ri(2, 9), () => ri(2, 9))),
-        I34("3-1", "나눗셈", divExactGen(() => ri(2, 9), () => ri(2, 9))),
-        I34("3-1", "곱셈구구 복습", () => timesTableGen(ri(2, 9))()),
-        I34("3-1", "(몇십) × (몇)", vMulGen(() => ri(2, 9) * 10, () => ri(2, 9))),
-        I34("3-1", "(두 자리 수) × (한 자리 수)", vMulGen(() => ri(11, 49), () => ri(2, 9))),
-        I34("3-1", "곱셈 종합", () => (Math.random() < 0.5 ? vMulGen(() => ri(2, 9) * 10, () => ri(2, 9)) : vMulGen(() => ri(11, 49), () => ri(2, 9)))()),
-        I34("3-1", "곱셈의 활용", vMulGen(() => ri(12, 49), () => ri(3, 9))),
-        // ----- 3학년 2학기 -----
-        I34("3-2", "(세 자리 수) × (한 자리 수)", vMulGen(() => ri(112, 499), () => ri(2, 9))),
-        I34("3-2", "곱셈 종합", () => (Math.random() < 0.5 ? vMulGen(() => ri(112, 499), () => ri(2, 9)) : vMulGen(() => ri(11, 49), () => ri(11, 49)))()),
-        I34("3-2", "(몇십) × (몇십)", vMulGen(() => ri(2, 9) * 10, () => ri(2, 9) * 10)),
-        I34("3-2", "(두 자리 수) × (몇십)", vMulGen(() => ri(11, 49), () => ri(2, 9) * 10)),
-        I34("3-2", "(두 자리 수) × (두 자리 수)", vMulGen(() => ri(11, 49), () => ri(11, 49))),
-        I34("3-2", "곱셈의 활용", vMulGen(() => ri(13, 79), () => ri(12, 49))),
-        I34("3-2", "(몇십) ÷ (몇)", () => {
+      id: "g31", label: "3학년 1학기", items: [
+        I31("여러 가지 방법으로 덧셈하기", vBinGen("+", (a, b) => a + b, () => ri(102, 898), () => ri(102, 898))),
+        I31("(세 자리 수) + (세 자리 수)", vBinGen("+", (a, b) => a + b, () => ri(123, 888), () => ri(123, 888))),
+        I31("여러 가지 방법으로 뺄셈하기", vBinGen("−", (a, b) => a - b, () => ri(345, 999), () => ri(112, 344))),
+        I31("(세 자리 수) − (세 자리 수)", vBinGen("−", (a, b) => a - b, () => ri(345, 999), () => ri(112, 344))),
+        I31("(네 자리 수) − (세 자리 수)", vBinGen("−", (a, b) => a - b, () => ri(1234, 9876), () => ri(234, 987))),
+        I31("덧셈과 뺄셈", vAddSubGen(() => ri(123, 888), () => ri(112, 444))),
+        I31("나눗셈 - 똑같이 나누기", divExactGen(() => ri(2, 9), () => ri(1, 9))),
+        I31("곱셈구구와 나눗셈", divExactGen(() => ri(2, 9), () => ri(2, 9))),
+        I31("나눗셈과 곱셈", divExactGen(() => ri(2, 9), () => ri(2, 9))),
+        I31("나눗셈", divExactGen(() => ri(2, 9), () => ri(2, 9))),
+        I31("곱셈구구 복습", () => timesTableGen(ri(2, 9))()),
+        I31("(몇십) × (몇)", vMulGen(() => ri(2, 9) * 10, () => ri(2, 9))),
+        I31("(두 자리 수) × (한 자리 수)", vMulGen(() => ri(11, 49), () => ri(2, 9))),
+        I31("곱셈 종합", () => (Math.random() < 0.5 ? vMulGen(() => ri(2, 9) * 10, () => ri(2, 9)) : vMulGen(() => ri(11, 49), () => ri(2, 9)))()),
+        I31("곱셈의 활용", vMulGen(() => ri(12, 49), () => ri(3, 9))),
+      ],
+    },
+    {
+      id: "g32", label: "3학년 2학기", items: [
+        I32("(세 자리 수) × (한 자리 수)", vMulGen(() => ri(112, 499), () => ri(2, 9))),
+        I32("곱셈 종합", () => (Math.random() < 0.5 ? vMulGen(() => ri(112, 499), () => ri(2, 9)) : vMulGen(() => ri(11, 49), () => ri(11, 49)))()),
+        I32("(몇십) × (몇십)", vMulGen(() => ri(2, 9) * 10, () => ri(2, 9) * 10)),
+        I32("(두 자리 수) × (몇십)", vMulGen(() => ri(11, 49), () => ri(2, 9) * 10)),
+        I32("(두 자리 수) × (두 자리 수)", vMulGen(() => ri(11, 49), () => ri(11, 49))),
+        I32("곱셈의 활용", vMulGen(() => ri(13, 79), () => ri(12, 49))),
+        I32("(몇십) ÷ (몇)", () => {
           const d = ri(2, 4), Q = ri(2, Math.floor(9 / d)), T0 = d * Q;
           return { promptHtml: expr(T(T0 * 10) + OP("÷") + T(d) + OP("=") + B(0)), blanks: [String(Q * 10)] };
         }),
-        I34("3-2", "나머지가 있는 나눗셈", divRemGen(() => ri(3, 9), () => ri(2, 9))),
-        I34("3-2", "나눗셈의 검산", divCheckGen(() => ri(3, 9), () => ri(2, 9), true)),
-        I34("3-2", "(몇십 몇) ÷ (몇)", divExactGen(() => ri(2, 9), () => ri(2, 9))),
-        I34("3-2", "(몇십 몇) ÷ (몇) 나눗셈의 검산", divCheckGen(() => ri(2, 9), () => ri(2, 9), false)),
-        I34("3-2", "대분수를 가분수로, 가분수를 대분수로 나타내기", fracConvertGen()),
-        I34("3-2", "들이의 단위", capacityGen()),
-        // ----- 4학년 1학기 -----
-        I34("4-1", "곱셈 종합", () => (Math.random() < 0.5 ? vMulGen(() => ri(112, 499), () => ri(11, 49)) : vMulGen(() => ri(11, 49), () => ri(11, 49)))()),
-        I34("4-1", "몇십으로 나누기", () => {
+        I32("나머지가 있는 나눗셈", divRemGen(() => ri(3, 9), () => ri(2, 9))),
+        I32("나눗셈의 검산", divCheckGen(() => ri(3, 9), () => ri(2, 9), true)),
+        I32("(몇십 몇) ÷ (몇)", divExactGen(() => ri(2, 9), () => ri(2, 9))),
+        I32("(몇십 몇) ÷ (몇) 나눗셈의 검산", divCheckGen(() => ri(2, 9), () => ri(2, 9), false)),
+        I32("대분수를 가분수로, 가분수를 대분수로 나타내기", fracConvertGen()),
+        I32("들이의 단위", capacityGen()),
+      ],
+    },
+    {
+      id: "g41", label: "4학년 1학기", items: [
+        I41("곱셈 종합", () => (Math.random() < 0.5 ? vMulGen(() => ri(112, 499), () => ri(11, 49)) : vMulGen(() => ri(11, 49), () => ri(11, 49)))()),
+        I41("몇십으로 나누기", () => {
           const d = ri(2, 9) * 10, q = ri(2, 9);
           return { promptHtml: expr(T(d * q) + OP("÷") + T(d) + OP("=") + B(0)), blanks: [String(q)] };
         }),
-        I34("4-1", "(두 자리 수) ÷ (두 자리 수)", () => {
+        I41("(두 자리 수) ÷ (두 자리 수)", () => {
           const d = ri(11, 24), q = ri(2, Math.max(2, Math.floor(99 / d)));
           return { promptHtml: expr(T(d * q) + OP("÷") + T(d) + OP("=") + B(0)), blanks: [String(q)] };
         }),
-        I34("4-1", "(세 자리 수) ÷ (두 자리 수)", divRemGen(() => ri(11, 40), () => ri(6, 25))),
-        I34("4-1", "나눗셈 종합", () => (Math.random() < 0.5 ? divExactGen(() => ri(11, 24), () => ri(2, 6))() : divRemGen(() => ri(11, 40), () => ri(6, 20))())),
-        I34("4-1", "곱셈 심화", vMulGen(() => ri(112, 899), () => ri(12, 79))),
-        // ----- 4학년 2학기 -----
-        I34("4-2", "분모가 같은 진분수의 덧셈", sameDenProperGen(true)),
-        I34("4-2", "분모가 같은 대분수의 덧셈", sameDenMixedGen(true)),
-        I34("4-2", "분모가 같은 진분수의 뺄셈", sameDenProperGen(false)),
-        I34("4-2", "분모가 같은 대분수의 뺄셈", sameDenMixedGen(false)),
-        I34("4-2", "대분수와 진분수의 덧셈과 뺄셈", mixedProperGen()),
-        I34("4-2", "자릿수가 같은 소수의 덧셈", decimalSameGen(true, 1)),
-        I34("4-2", "자릿수가 다른 소수의 덧셈", decimalDiffGen(true)),
-        I34("4-2", "자릿수가 같은 소수의 뺄셈", decimalSameGen(false, 1)),
-        I34("4-2", "자릿수가 다른 소수의 뺄셈", decimalDiffGen(false)),
+        I41("(세 자리 수) ÷ (두 자리 수)", divRemGen(() => ri(11, 40), () => ri(6, 25))),
+        I41("나눗셈 종합", () => (Math.random() < 0.5 ? divExactGen(() => ri(11, 24), () => ri(2, 6))() : divRemGen(() => ri(11, 40), () => ri(6, 20))())),
+        I41("곱셈 심화", vMulGen(() => ri(112, 899), () => ri(12, 79))),
       ],
     },
-    { id: "g56", label: "5~6학년군", items: [] }, // 추후 추가
+    {
+      id: "g42", label: "4학년 2학기", items: [
+        I42("분모가 같은 진분수의 덧셈", sameDenProperGen(true)),
+        I42("분모가 같은 대분수의 덧셈", sameDenMixedGen(true)),
+        I42("분모가 같은 진분수의 뺄셈", sameDenProperGen(false)),
+        I42("분모가 같은 대분수의 뺄셈", sameDenMixedGen(false)),
+        I42("대분수와 진분수의 덧셈과 뺄셈", mixedProperGen()),
+        I42("자릿수가 같은 소수의 덧셈", decimalSameGen(true, 1)),
+        I42("자릿수가 다른 소수의 덧셈", decimalDiffGen(true)),
+        I42("자릿수가 같은 소수의 뺄셈", decimalSameGen(false, 1)),
+        I42("자릿수가 다른 소수의 뺄셈", decimalDiffGen(false)),
+      ],
+    },
   ];
 
   /* ---------- 조회 헬퍼 ---------- */
@@ -354,7 +360,6 @@
     if (!f) return null;
     return {
       groupLabel: f.group.label,
-      hint: f.item.hint,
       name: f.item.name,
       title: f.item.name,
     };

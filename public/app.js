@@ -223,7 +223,7 @@
     const item = items.find((it) => it.id === sel.itemId) || items[0];
     return `
       <div class="field">
-        <label>학년군</label>
+        <label>학년·학기</label>
         <select data-sel="${prefix}-group">
           ${groups.map((g) => `<option value="${g.id}" ${g.id === group.id ? "selected" : ""}>${g.label}</option>`).join("")}
         </select>
@@ -231,14 +231,14 @@
       <div class="field">
         <label>세부 항목</label>
         <select data-sel="${prefix}-item">
-          ${items.map((it) => `<option value="${it.id}" ${it.id === item.id ? "selected" : ""}>${escapeHtml(it.hint)} · ${escapeHtml(it.name)}</option>`).join("")}
+          ${items.map((it) => `<option value="${it.id}" ${it.id === item.id ? "selected" : ""}>${escapeHtml(it.name)}</option>`).join("")}
         </select>
       </div>`;
   }
 
   function activeGroups() { return Curriculum.GROUPS.filter((g) => g.items.length); }
 
-  let assignSel = { groupId: "g34", itemId: null, count: 10 };
+  let assignSel = { groupId: "g31", itemId: null, count: 10 };
   function renderAssign() {
     syncSel(assignSel);
     const cur = state.assignment;
@@ -464,7 +464,7 @@
       <div class="worksheet">
         <div class="ws-head">
           <div class="ws-logo">일일수학</div>
-          <div class="ws-info"><div>${m.groupLabel}</div><div class="ws-unit">${escapeHtml(m.name)}</div><div class="ws-lvl">${escapeHtml(m.hint || "")}</div></div>
+          <div class="ws-info"><div class="ws-unit">${m.groupLabel}</div><div class="ws-lvl">${escapeHtml(m.name)}</div></div>
         </div>
         <h4 class="ws-title">${escapeHtml(m.title)}</h4>
         <div class="ws-grid">${cells}</div>
@@ -668,7 +668,7 @@
   function editSchedule(ds) {
     const wd = weekdayOf(ds);
     const eff = state.scheduleOverrides[ds] || state.schedule[wd] || {};
-    schSel = { groupId: "g34", itemId: eff.itemId || null, count: eff.count || 10 };
+    schSel = { groupId: "g31", itemId: eff.itemId || null, count: eff.count || 10 };
     if (eff.itemId) { const f = Curriculum.findItem(eff.itemId); if (f) schSel.groupId = f.group.id; }
     syncSel(schSel);
     Modal.show({
