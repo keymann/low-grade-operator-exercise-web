@@ -611,7 +611,7 @@
         <div class="field"><label>새 비밀번호 확인</label><input type="password" data-sel="pw-new2"></div>
       </div>
       <div class="action-row"><button class="btn btn-primary" data-act="change-pw">부모모드 비밀번호 변경</button></div>
-      <p class="muted small">부모모드 진입 시 사용하는 비밀번호입니다(로그인 비밀번호와 별개).</p>`;
+      <p class="muted small pw-note">부모모드 진입 시 사용하는 비밀번호입니다(로그인 비밀번호와 별개).</p>`;
   }
 
   function renderLoginPwForm() {
@@ -623,7 +623,7 @@
         <div class="field"><label>새 비밀번호 확인</label><input type="password" data-sel="lpw-new2"></div>
       </div>
       <div class="action-row"><button class="btn btn-primary" data-act="change-login-pw">로그인 비밀번호 변경</button></div>
-      <p class="muted small">다음 로그인부터 새 비밀번호를 사용합니다(4자 이상).</p>`;
+      <p class="muted small pw-note">다음 로그인부터 새 비밀번호를 사용합니다(4자 이상).</p>`;
   }
 
   /* ---------- 문제지(worksheet) 렌더 ---------- */
