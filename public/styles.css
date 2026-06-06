@@ -81,12 +81,15 @@ button { font-family: inherit; cursor: pointer; }
 /* 문제 */
 .prob { display: flex; gap: 8px; align-items: flex-start; padding: 8px; border-radius: 8px; min-height: 40px; }
 .prob-no { color: var(--blue); font-weight: 700; min-width: 20px; text-align: right; padding-top: 4px; }
-.prob-body { flex: 1; }
+.prob-body { flex: 1; min-width: 0; }   /* flex 자식 축소 허용(넘침 방지) */
 .prob-wrong { background: #fdeaea; }
 .prob-correct { background: #f4faf6; }
 
-.expr { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 19px; line-height: 1.9; }
+/* 문제는 문제지 셀(영역)을 벗어나지 않도록: 줄바꿈 허용 + 폭 제한 */
+.expr { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 19px; line-height: 1.9; max-width: 100%; }
 .expr .t { white-space: nowrap; }
+/* 서술형 라벨은 셀 폭 안에서 줄바꿈(한글 단어 단위) */
+.expr .t.lbl { white-space: normal; word-break: keep-all; overflow-wrap: anywhere; }
 .expr .op { color: #374151; padding: 0 2px; }
 
 /* 빈칸 */
