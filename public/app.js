@@ -8,18 +8,31 @@
 (function () {
   "use strict";
 
-  const STORE_KEY = "ilmath_state_v2";
+  const STORE_PREFIX = "ilmath_state_v2:"; // 회원별 로컬 캐시 키 접두사
+  const AUTH_KEY = "ilmath_auth";          // 로그인 캐시 { id, token }
+  const INVITE_HINT = "hellow~!!!";        // 초대 코드(최종 검증은 서버)
+  const ID_RE = /^[가-힣a-zA-Z0-9]{1,10}$/;
   const DEFAULT_PW = "kw20021163";
   const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
   const WEEKDAY_KO = { sun: "일", mon: "월", tue: "화", wed: "수", thu: "목", fri: "금", sat: "토" };
 
   /* ---------- 상태 ---------- */
+  let auth = loadAuth();         // { id, token } | null  (로그인 정보 캐시)
+  let authed = false;            // 로그인 완료 여부
+  let authView = "login";        // 'login' | 'signup'
   let state = defaultState();
   let mode = "student";          // 'student' | 'parent'
   let parentUnlocked = false;    // 세션 동안만 유효
   let parentTab = "assign";      // 'assign' | 'schedule' | 'answers' | 'history' | 'achievement' | 'settings'
   let dirty = false;             // 로컬 변경이 서버에 아직 반영되지 않음
   let saveTimer = null;
+
+  /* ---------- 인증 캐시 ---------- */
+  function loadAuth() { try { const r = localStorage.getItem(AUTH_KEY); return r ? JSON.parse(r) : null; } catch (e) { return null; } }
+  function saveAuth(a) { auth = a; try { localStorage.setItem(AUTH_KEY, JSON.stringify(a)); } catch (e) {} }
+  function clearAuth() { auth = null; try { localStorage.removeItem(AUTH_KEY); } catch (e) {} }
+  function authQuery() { return auth ? `?u=${encodeURIComponent(auth.id)}&t=${encodeURIComponent(auth.token)}` : ""; }
+  function cacheKey() { return STORE_PREFIX + (auth ? auth.id : "_"); }
 
   function defaultState() { return normalizeState({}); }
   function normalizeState(s) {
@@ -34,23 +47,24 @@
     };
   }
 
-  // 서버(KV)에서 상태 로드. 실패 시 localStorage 캐시 폴백.
+  // 서버(KV)에서 회원 상태 로드. 401(인증 실패) 이면 null 반환, 그 외 실패 시 캐시 폴백.
   async function loadState() {
     try {
-      const res = await fetch("/api/state", { cache: "no-store" });
+      const res = await fetch("/api/state" + authQuery(), { cache: "no-store" });
+      if (res.status === 401) return null;
       if (res.ok) {
         const j = await res.json();
         if (j && typeof j === "object") { cacheLocal(j); return normalizeState(j); }
       }
     } catch (e) {}
     try {
-      const raw = localStorage.getItem(STORE_KEY);
+      const raw = localStorage.getItem(cacheKey());
       if (raw) return normalizeState(JSON.parse(raw));
     } catch (e) {}
     return defaultState();
   }
 
-  function cacheLocal(obj) { try { localStorage.setItem(STORE_KEY, JSON.stringify(obj)); } catch (e) {} }
+  function cacheLocal(obj) { try { localStorage.setItem(cacheKey(), JSON.stringify(obj)); } catch (e) {} }
 
   // 로컬 즉시 저장 + 디바운스 서버 PUT
   function saveState() {
@@ -60,9 +74,10 @@
     saveTimer = setTimeout(pushState, 500);
   }
   function pushState() {
+    if (!auth) return;
     const body = JSON.stringify(state);
     try {
-      fetch("/api/state", { method: "PUT", headers: { "Content-Type": "application/json" }, body })
+      fetch("/api/state" + authQuery(), { method: "PUT", headers: { "Content-Type": "application/json" }, body })
         .then(() => { dirty = false; })
         .catch(() => {});
     } catch (e) {}
@@ -70,9 +85,9 @@
 
   // 다른 브라우저의 변경을 반영(편집 중이 아닐 때만)
   async function refreshFromServer() {
-    if (dirty || Numberpad.isOpen()) return;
+    if (!auth || dirty || Numberpad.isOpen()) return;
     try {
-      const res = await fetch("/api/state", { cache: "no-store" });
+      const res = await fetch("/api/state" + authQuery(), { cache: "no-store" });
       if (!res.ok) return;
       const j = await res.json();
       if (j && typeof j === "object") {
@@ -158,11 +173,117 @@
   const app = () => document.getElementById("app");
 
   function render() {
+    // 미인증: 로그인/회원가입 화면만 노출
+    if (!authed) {
+      document.body.classList.remove("student-mode");
+      app().innerHTML = renderAuth();
+      bindAuth();
+      return;
+    }
     if (mode === "student") ensureTodayAssignment();
     // 학생 모드: 롱프레스로 인한 텍스트 선택(select mode)/콜아웃 비활성화
     document.body.classList.toggle("student-mode", mode === "student");
     app().innerHTML = renderHeader() + `<main class="main">${mode === "student" ? renderStudent() : renderParent()}</main>`;
     bind();
+  }
+
+  /* ---------- 로그인 / 회원가입 ---------- */
+  function renderAuth() {
+    return `
+      <div class="auth-wrap">
+        <div class="auth-card">
+          <div class="brand auth-brand">일일수학</div>
+          ${authView === "login" ? renderLogin() : renderSignup()}
+        </div>
+      </div>`;
+  }
+  function renderLogin() {
+    return `
+      <h2 class="auth-title">로그인</h2>
+      <div class="field"><label>아이디</label><input type="text" id="login-id" autocomplete="username" maxlength="10"></div>
+      <div class="field"><label>비밀번호</label><input type="password" id="login-pw" autocomplete="current-password"></div>
+      <div class="auth-err" id="auth-err"></div>
+      <button class="btn btn-primary auth-btn" data-auth="do-login">로그인</button>
+      <div class="auth-switch">계정이 없나요? <a href="#" data-auth="to-signup">회원가입</a></div>`;
+  }
+  function renderSignup() {
+    return `
+      <h2 class="auth-title">회원가입</h2>
+      <div class="field"><label>아이디 <span class="hint">(한글·영어·숫자, 10자 이내)</span></label><input type="text" id="su-id" maxlength="10"></div>
+      <div class="field"><label>비밀번호</label><input type="password" id="su-pw"></div>
+      <div class="field"><label>비밀번호 다시 입력</label><input type="password" id="su-pw2"></div>
+      <div class="field"><label>초대 코드</label><input type="text" id="su-invite"></div>
+      <div class="auth-err" id="auth-err"></div>
+      <button class="btn btn-primary auth-btn" data-auth="do-signup">가입하기</button>
+      <div class="auth-switch">이미 계정이 있나요? <a href="#" data-auth="to-login">로그인</a></div>`;
+  }
+  function authErr(msg) { const el = document.getElementById("auth-err"); if (el) el.textContent = msg || ""; }
+
+  function bindAuth() {
+    const root = app();
+    root.querySelectorAll("[data-auth]").forEach((el) => {
+      el.addEventListener("click", (e) => {
+        const a = el.getAttribute("data-auth");
+        if (a === "to-signup" || a === "to-login") { e.preventDefault(); authView = a === "to-signup" ? "signup" : "login"; render(); return; }
+        if (a === "do-login") return doLogin();
+        if (a === "do-signup") return doSignup();
+      });
+    });
+    const submitOn = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); fn(); } }); };
+    if (authView === "login") { submitOn("login-id", doLogin); submitOn("login-pw", doLogin); }
+    else { ["su-id", "su-pw", "su-pw2", "su-invite"].forEach((id) => submitOn(id, doSignup)); }
+  }
+
+  async function doLogin() {
+    const id = (document.getElementById("login-id").value || "").trim();
+    const pw = document.getElementById("login-pw").value || "";
+    if (!id || !pw) { authErr("아이디 또는 비밀번호 확인해 주세요~"); return; }
+    try {
+      const res = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, password: pw }) });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j.ok) { authErr("아이디 또는 비밀번호 확인해 주세요~"); return; }
+      saveAuth({ id: j.id, token: j.token });
+      await enterApp();
+    } catch (e) { authErr("아이디 또는 비밀번호 확인해 주세요~"); }
+  }
+
+  async function doSignup() {
+    const id = (document.getElementById("su-id").value || "").trim();
+    const pw = document.getElementById("su-pw").value || "";
+    const pw2 = document.getElementById("su-pw2").value || "";
+    const invite = document.getElementById("su-invite").value || "";
+    if (!ID_RE.test(id)) { authErr("아이디는 한글·영어·숫자 10자 이내로 입력해 주세요~"); return; }
+    if (!pw || pw !== pw2) { authErr("비밀번호가 일치하지 않습니다~"); return; }
+    if (invite !== INVITE_HINT) { authErr("초대 코드 다시 확인해 주세요~"); return; }
+    try {
+      const res = await fetch("/api/signup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, password: pw, password2: pw2, invite }) });
+      const j = await res.json().catch(() => ({}));
+      if (res.ok && j.ok) { saveAuth({ id: j.id, token: j.token }); await enterApp(); return; }
+      const map = {
+        invite: "초대 코드 다시 확인해 주세요~",
+        dup: "이미 사용 중인 아이디예요. 다른 아이디를 입력해 주세요~",
+        id_format: "아이디는 한글·영어·숫자 10자 이내로 입력해 주세요~",
+        pw_mismatch: "비밀번호가 일치하지 않습니다~",
+      };
+      authErr(map[j.error] || "가입에 실패했어요. 잠시 후 다시 시도해 주세요~");
+    } catch (e) { authErr("가입에 실패했어요. 잠시 후 다시 시도해 주세요~"); }
+  }
+
+  // 인증 성공 후 상태 로드 → 학생 모드 진입
+  async function enterApp() {
+    const s = await loadState();
+    if (s === null) { clearAuth(); authed = false; authView = "login"; render(); authErr("아이디 또는 비밀번호 확인해 주세요~"); return; }
+    state = s;
+    authed = true; mode = "student"; parentUnlocked = false; parentTab = "assign";
+    render();
+  }
+
+  function doLogout() {
+    try { localStorage.removeItem(cacheKey()); } catch (e) {}
+    clearAuth();
+    authed = false; parentUnlocked = false; mode = "student"; authView = "login";
+    state = defaultState();
+    render();
   }
 
   function renderHeader() {
@@ -429,7 +550,10 @@
           <div class="field"><label>새 비밀번호 확인</label><input type="password" data-sel="pw-new2"></div>
         </div>
         <div class="action-row"><button class="btn btn-primary" data-act="change-pw">비밀번호 변경</button></div>
-        <p class="muted small">초기 비밀번호는 기본값으로 설정되어 있습니다.</p>
+        <p class="muted small">부모모드 진입 비밀번호입니다(로그인 비밀번호와 별개).</p>
+        <h3>계정</h3>
+        <div class="note">현재 로그인: <b>${escapeHtml(auth ? auth.id : "")}</b></div>
+        <div class="action-row"><button class="btn btn-ghost" data-act="logout">로그아웃</button></div>
       </div>`;
   }
 
@@ -526,6 +650,7 @@
       case "redo": return doRedo();
       case "change-pw": return doChangePw();
       case "edit-sch": return editSchedule(el.getAttribute("data-date"));
+      case "logout": return doLogout();
     }
   }
 
@@ -746,7 +871,12 @@
 
   /* ---------- 시작 ---------- */
   (async function init() {
-    state = await loadState();
+    // 캐시된 로그인이 있으면 자동 로그인(해당 아이디의 학생 모드로 진입)
+    if (auth && auth.id && auth.token) {
+      const s = await loadState();
+      if (s !== null) { state = s; authed = true; }
+      else { clearAuth(); authed = false; }
+    }
     render();
     // 다른 브라우저의 변경을 반영
     document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshFromServer(); });
