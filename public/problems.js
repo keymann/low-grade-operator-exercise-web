@@ -234,6 +234,259 @@
     };
   }
 
+  /* ---------- 5~6학년군 생성기 ---------- */
+  const lcm = (a, b) => (a / gcd(a, b)) * b;
+  const paren = (s) => `<span class="t">(</span>${s}<span class="t">)</span>`;
+
+  // 두 수의 단일 연산(정수·비음수·정확한 나눗셈만 허용). 실패 시 {ok:false}.
+  function evalBin(x, op, y) {
+    if (x == null || y == null) return { ok: false };
+    if (op === "+") return { ok: true, val: x + y };
+    if (op === "−") { const v = x - y; return v < 0 ? { ok: false } : { ok: true, val: v }; }
+    if (op === "×") return { ok: true, val: x * y };
+    if (op === "÷") { if (y === 0 || x % y !== 0) return { ok: false }; return { ok: true, val: x / y }; }
+    return { ok: false };
+  }
+  // 3항 식 평가 (mode 0: 우선순위, 1: (a∘b)∘c, 2: a∘(b∘c))
+  function evalExpr(a, op1, b, op2, c, mode) {
+    const prec = (o) => (o === "×" || o === "÷" ? 2 : 1);
+    if (mode === 1) { const r = evalBin(a, op1, b); return r.ok ? evalBin(r.val, op2, c) : r; }
+    if (mode === 2) { const r = evalBin(b, op2, c); return r.ok ? evalBin(a, op1, r.val) : r; }
+    if (prec(op1) >= prec(op2)) { const r = evalBin(a, op1, b); return r.ok ? evalBin(r.val, op2, c) : r; }
+    const r = evalBin(b, op2, c); return r.ok ? evalBin(a, op1, r.val) : r;
+  }
+  function mixedHtml(a, op1, b, op2, c, mode) {
+    if (mode === 1) return paren(T(a) + OP(op1) + T(b)) + OP(op2) + T(c);
+    if (mode === 2) return T(a) + OP(op1) + paren(T(b) + OP(op2) + T(c));
+    return T(a) + OP(op1) + T(b) + OP(op2) + T(c);
+  }
+  // 혼합 계산: ops 에서 두 연산자 선택, 음이 아닌 정수·정확한 나눗셈이 될 때까지 재시도
+  function mixedCalcGen(ops, useParens) {
+    return () => {
+      for (let t = 0; t < 400; t++) {
+        const op1 = pick(ops), op2 = pick(ops);
+        const a = ri(2, 20), b = ri(2, 12), c = ri(2, 12);
+        const mode = useParens ? pick([0, 1, 2]) : 0;
+        const r = evalExpr(a, op1, b, op2, c, mode);
+        if (!r.ok || r.val < 0) continue;
+        return { promptHtml: expr(mixedHtml(a, op1, b, op2, c, mode) + OP("=") + B(0)), blanks: [String(r.val)] };
+      }
+      const a = ri(2, 9), b = ri(2, 9);
+      return { promptHtml: expr(T(a) + OP("+") + T(b) + OP("=") + B(0)), blanks: [String(a + b)] };
+    };
+  }
+
+  // 약수와 배수: 최대공약수 / 최소공배수
+  function gcdLcmGen() {
+    return () => {
+      const a = ri(4, 24), b = ri(4, 24);
+      const wantLcm = Math.random() < 0.5;
+      const ans = wantLcm ? lcm(a, b) : gcd(a, b);
+      const label = wantLcm ? "최소공배수" : "최대공약수";
+      return { promptHtml: expr(`<span class="t">${a}, ${b} 의 ${label}</span>` + OP("=") + B(0)), blanks: [String(ans)] };
+    };
+  }
+  // 약분 → 기약분수
+  function reduceGen() {
+    return () => {
+      let rn, rd;
+      do { rn = ri(1, 6); rd = ri(2, 9); } while (gcd(rn, rd) !== 1 || rn >= rd);
+      const g = ri(2, 9);
+      return { promptHtml: expr(fr(rn * g, rd * g) + OP("=") + frB(0, 1)), blanks: [String(rn), String(rd)] };
+    };
+  }
+  // 분수 → 소수 (유한소수)
+  function fracToDecimalGen() {
+    return () => {
+      const d = pick([2, 4, 5, 8, 10, 20, 25, 50]);
+      const n = ri(1, d - 1);
+      return { promptHtml: expr(fr(n, d) + OP("=") + B(0)), blanks: [trimNum((n / d).toFixed(4))] };
+    };
+  }
+  // 이분모 분수의 덧셈/뺄셈 → 기약분수
+  function fracAddSubDiffGen() {
+    return () => {
+      const isAdd = Math.random() < 0.5;
+      let d1 = ri(2, 8), d2 = ri(2, 8);
+      while (d1 === d2 || lcm(d1, d2) > 48) { d1 = ri(2, 8); d2 = ri(2, 8); }
+      let n1 = ri(1, d1 - 1), n2 = ri(1, d2 - 1);
+      const L = lcm(d1, d2);
+      let num = isAdd ? n1 * (L / d1) + n2 * (L / d2) : n1 * (L / d1) - n2 * (L / d2);
+      if (!isAdd && num <= 0) { [d1, d2, n1, n2] = [d2, d1, n2, n1]; num = n1 * (L / d1) - n2 * (L / d2); }
+      if (num === 0) num = 1;
+      const g = gcd(Math.abs(num), L) || 1;
+      const left = fr(n1, d1) + OP(isAdd ? "+" : "−") + fr(n2, d2);
+      return { promptHtml: expr(left + OP("=") + frB(0, 1)), blanks: [String(num / g), String(L / g)] };
+    };
+  }
+  // 분수의 곱셈 → 기약분수
+  function fracMulGen() {
+    return () => {
+      const d1 = ri(2, 7), d2 = ri(2, 7);
+      const n1 = ri(1, d1 - 1), n2 = ri(1, d2 - 1);
+      const num = n1 * n2, den = d1 * d2, g = gcd(num, den) || 1;
+      return { promptHtml: expr(fr(n1, d1) + OP("×") + fr(n2, d2) + OP("=") + frB(0, 1)), blanks: [String(num / g), String(den / g)] };
+    };
+  }
+  // (소수)×(자연수), (소수)×(소수)
+  function decimalNatMulGen() {
+    return () => {
+      const a = ri(11, 99) / 10, b = ri(2, 9);
+      return { promptHtml: expr(T(a.toFixed(1)) + OP("×") + T(b) + OP("=") + B(0)), blanks: [trimNum((a * b).toFixed(2))] };
+    };
+  }
+  function decimalMulGen() {
+    return () => {
+      const a = ri(11, 99) / 10, b = ri(11, 99) / 10;
+      return { promptHtml: expr(T(a.toFixed(1)) + OP("×") + T(b.toFixed(1)) + OP("=") + B(0)), blanks: [trimNum((a * b).toFixed(2))] };
+    };
+  }
+  // (분수)÷(자연수) → 기약분수
+  function fracDivNatGen() {
+    return () => {
+      const b = ri(2, 9), a = ri(1, b - 1), n = ri(2, 9);
+      const num = a, den = b * n, g = gcd(num, den) || 1;
+      return { promptHtml: expr(fr(a, b) + OP("÷") + T(n) + OP("=") + frB(0, 1)), blanks: [String(num / g), String(den / g)] };
+    };
+  }
+  // (소수)÷(자연수), 나누어떨어지게
+  function decimalNatDivGen() {
+    return () => {
+      const q = ri(11, 99) / 10, n = ri(2, 9);
+      const dividend = +(q * n).toFixed(1);
+      return { promptHtml: expr(T(dividend.toFixed(1)) + OP("÷") + T(n) + OP("=") + B(0)), blanks: [trimNum(q.toFixed(1))] };
+    };
+  }
+  // 비율(유한소수)
+  function ratioGen() {
+    return () => {
+      const b = pick([2, 4, 5, 8, 10, 20, 25]), a = ri(1, b - 1);
+      return { promptHtml: expr(`<span class="t">기준량 ${b} 에 대한 ${a} 의 비율</span>` + OP("=") + B(0)), blanks: [trimNum((a / b).toFixed(4))] };
+    };
+  }
+  // 백분율(정수 %)
+  function percentGen() {
+    return () => {
+      const b = pick([2, 4, 5, 10, 20, 25, 50]);
+      let a; do { a = ri(1, b - 1); } while ((a * 100) % b !== 0);
+      return { promptHtml: expr(`<span class="t">${a} 는 ${b} 의</span>` + B(0) + `<span class="t">%</span>`), blanks: [String((a * 100) / b)] };
+    };
+  }
+  // 부피의 큰 단위 (m³ ↔ cm³)
+  function volumeUnitGen() {
+    return () => {
+      const m = ri(2, 9);
+      if (Math.random() < 0.5) {
+        return { promptHtml: expr(`<span class="t">${m} m³</span>` + OP("=") + B(0) + `<span class="t">cm³</span>`), blanks: [String(m * 1000000)] };
+      }
+      return { promptHtml: expr(`<span class="t">${m * 1000000} cm³</span>` + OP("=") + B(0) + `<span class="t">m³</span>`), blanks: [String(m)] };
+    };
+  }
+  // (자연수)÷(단위분수)
+  function natDivUnitFracGen() {
+    return () => {
+      const n = ri(2, 9), d = ri(2, 9);
+      return { promptHtml: expr(T(n) + OP("÷") + fr(1, d) + OP("=") + B(0)), blanks: [String(n * d)] };
+    };
+  }
+  // 분모가 같은 진분수끼리의 나눗셈 → 기약분수
+  function sameDenFracDivGen() {
+    return () => {
+      const d = ri(3, 9), a = ri(1, d - 1), b = ri(1, d - 1);
+      const g = gcd(a, b) || 1;
+      return { promptHtml: expr(fr(a, d) + OP("÷") + fr(b, d) + OP("=") + frB(0, 1)), blanks: [String(a / g), String(b / g)] };
+    };
+  }
+  // (분수)÷(분수) → 기약분수
+  function fracDivGen() {
+    return () => {
+      const b = ri(2, 7), d = ri(2, 7), a = ri(1, b - 1), c = ri(1, d - 1);
+      const num = a * d, den = b * c, g = gcd(num, den) || 1;
+      return { promptHtml: expr(fr(a, b) + OP("÷") + fr(c, d) + OP("=") + frB(0, 1)), blanks: [String(num / g), String(den / g)] };
+    };
+  }
+  // (자연수)÷(진분수) → 기약분수
+  function natDivFracGen() {
+    return () => {
+      const b = ri(2, 9), a = ri(1, b - 1), n = ri(2, 9);
+      const num = n * b, den = a, g = gcd(num, den) || 1;
+      return { promptHtml: expr(T(n) + OP("÷") + fr(a, b) + OP("=") + frB(0, 1)), blanks: [String(num / g), String(den / g)] };
+    };
+  }
+  // 대분수의 나눗셈 → 기약분수(가분수 허용)
+  function mixedFracDivGen() {
+    return () => {
+      const d1 = ri(2, 6), d2 = ri(2, 6);
+      const w1 = ri(1, 3), n1 = ri(1, d1 - 1), w2 = ri(1, 3), n2 = ri(1, d2 - 1);
+      const i1 = w1 * d1 + n1, i2 = w2 * d2 + n2;
+      const num = i1 * d2, den = d1 * i2, g = gcd(num, den) || 1;
+      return { promptHtml: expr(mixed(w1, n1, d1) + OP("÷") + mixed(w2, n2, d2) + OP("=") + frB(0, 1)), blanks: [String(num / g), String(den / g)] };
+    };
+  }
+  // 소수 ÷ 소수 (나누어떨어지게)
+  function decDiv11Gen() { // (소수 한 자리)÷(소수 한 자리), 정수 몫
+    return () => {
+      const k = ri(11, 49), q = ri(2, 9);
+      const v = k / 10, dividend = +(v * q).toFixed(1);
+      return { promptHtml: expr(T(dividend.toFixed(1)) + OP("÷") + T(v.toFixed(1)) + OP("=") + B(0)), blanks: [String(q)] };
+    };
+  }
+  function decDiv22Gen() { // (소수 두 자리)÷(소수 두 자리), 정수 몫
+    return () => {
+      const k = ri(11, 49), q = ri(2, 9);
+      const v = k / 100, dividend = +(v * q).toFixed(2);
+      return { promptHtml: expr(T(dividend.toFixed(2)) + OP("÷") + T(v.toFixed(2)) + OP("=") + B(0)), blanks: [String(q)] };
+    };
+  }
+  function decDivDiffGen() { // 자릿수가 다른 두 소수의 나눗셈 (피제수 2자리, 제수 1자리)
+    return () => {
+      const k = ri(2, 9), m = ri(2, 9);
+      const v = k / 10, ans = m / 10, dividend = +(v * ans).toFixed(2);
+      return { promptHtml: expr(T(dividend.toFixed(2)) + OP("÷") + T(v.toFixed(1)) + OP("=") + B(0)), blanks: [trimNum(ans.toFixed(1))] };
+    };
+  }
+  function decDivMixGen() { // 소수의 나눗셈의 활용 (혼합)
+    const gens = [decDiv11Gen(), decDiv22Gen(), decDivDiffGen()];
+    return () => pick(gens)();
+  }
+  // (자연수)÷(소수), 나누어떨어지게
+  function natDivDecGen() {
+    return () => {
+      const vs = [0.2, 0.25, 0.4, 0.5, 0.75, 0.8];
+      for (let t = 0; t < 100; t++) {
+        const v = pick(vs), ans = ri(2, 40), n = +(ans * v).toFixed(2);
+        if (Number.isInteger(n) && n >= 2) return { promptHtml: expr(T(n) + OP("÷") + T(String(v)) + OP("=") + B(0)), blanks: [String(ans)] };
+      }
+      return { promptHtml: expr(T(10) + OP("÷") + T("0.5") + OP("=") + B(0)), blanks: ["20"] };
+    };
+  }
+  // 나머지가 있는 소수의 나눗셈: (소수)÷(정수) = 몫(정수) … 나머지(소수)
+  function decDivRemGen() {
+    return () => {
+      const divisor = ri(2, 9), q = ri(2, 9), r = ri(1, divisor * 10 - 1) / 10;
+      const dividend = +(divisor * q + r).toFixed(1);
+      return { promptHtml: expr(T(dividend.toFixed(1)) + OP("÷") + T(divisor) + OP("=") + B(0) + OP("…") + B(1)), blanks: [String(q), trimNum(r.toFixed(1))] };
+    };
+  }
+  // 소수의 몫을 반올림하기
+  function decRoundGen() {
+    return () => {
+      const place = pick([1, 2]);
+      const a = +((ri(2, 9) * 10 + ri(1, 9)) / 10).toFixed(1), b = ri(3, 9);
+      const factor = Math.pow(10, place);
+      const ans = Math.round((a / b) * factor) / factor;
+      const label = place === 1 ? "소수 첫째 자리까지" : "소수 둘째 자리까지";
+      return { promptHtml: expr(`<span class="t">${a.toFixed(1)} ÷ ${b} 를 반올림하여 ${label}</span>` + OP("=") + B(0)), blanks: [trimNum(ans.toFixed(place))] };
+    };
+  }
+  // 쌓기나무의 개수
+  function cubeCountGen() {
+    return () => {
+      const w = ri(2, 5), d = ri(2, 5), h = ri(2, 5);
+      return { promptHtml: expr(`<span class="t">가로 ${w}, 세로 ${d}, 높이 ${h}인 직육면체 모양 쌓기나무의 개수</span>` + OP("=") + B(0)), blanks: [String(w * d * h)] };
+    };
+  }
+
   /* ---------- 커리큘럼 카탈로그 (학년군 → 세부항목) ---------- */
   let ivc = 0;
   // I(name, gen) — 항목이 속한 학기는 그룹(GROUPS)으로 구분한다.
@@ -242,6 +495,7 @@
   }
 
   const I31 = makeItem("g31"), I32 = makeItem("g32"), I41 = makeItem("g41"), I42 = makeItem("g42");
+  const I51 = makeItem("g51"), I52 = makeItem("g52"), I61 = makeItem("g61"), I62 = makeItem("g62");
   const GROUPS = [
     {
       id: "g31", label: "3학년 1학기", items: [
@@ -309,6 +563,53 @@
         I42("자릿수가 다른 소수의 덧셈", decimalDiffGen(true)),
         I42("자릿수가 같은 소수의 뺄셈", decimalSameGen(false, 1)),
         I42("자릿수가 다른 소수의 뺄셈", decimalDiffGen(false)),
+      ],
+    },
+    {
+      id: "g51", label: "5학년 1학기", items: [
+        I51("덧셈과 뺄셈의 혼합 계산", mixedCalcGen(["+", "−"], true)),
+        I51("곱셈과 나눗셈의 혼합 계산", mixedCalcGen(["×", "÷"], true)),
+        I51("덧셈, 뺄셈, 곱셈의 혼합 계산", mixedCalcGen(["+", "−", "×"], true)),
+        I51("덧셈, 뺄셈, 나눗셈의 혼합 계산", mixedCalcGen(["+", "−", "÷"], true)),
+        I51("덧셈, 뺄셈, 곱셈, 나눗셈의 혼합 계산", mixedCalcGen(["+", "−", "×", "÷"], true)),
+        I51("약수와 배수", gcdLcmGen()),
+        I51("약분과 통분", reduceGen()),
+        I51("분수와 소수", fracToDecimalGen()),
+        I51("분수의 덧셈과 뺄셈", fracAddSubDiffGen()),
+      ],
+    },
+    {
+      id: "g52", label: "5학년 2학기", items: [
+        I52("분수의 곱셈", fracMulGen()),
+        I52("소수와 자연수의 곱셈", decimalNatMulGen()),
+        I52("소수의 곱셈", decimalMulGen()),
+      ],
+    },
+    {
+      id: "g61", label: "6학년 1학기", items: [
+        I61("분수와 자연수의 나눗셈", fracDivNatGen()),
+        I61("소수와 자연수의 나눗셈", decimalNatDivGen()),
+        I61("비율 구하기", ratioGen()),
+        I61("백분율 구하기", percentGen()),
+        I61("부피의 큰 단위", volumeUnitGen()),
+      ],
+    },
+    {
+      id: "g62", label: "6학년 2학기", items: [
+        I62("(자연수) ÷ (단위분수)", natDivUnitFracGen()),
+        I62("분모가 같은 진분수끼리의 나눗셈", sameDenFracDivGen()),
+        I62("분모가 다른 진분수의 나눗셈", fracDivGen()),
+        I62("(자연수) ÷ (진분수)", natDivFracGen()),
+        I62("대분수의 나눗셈", mixedFracDivGen()),
+        I62("분수의 나눗셈 활용하기", fracDivGen()),
+        I62("(소수 한 자리 수) ÷ (소수 한 자리 수)", decDiv11Gen()),
+        I62("(소수 두 자리 수) ÷ (소수 두 자리 수)", decDiv22Gen()),
+        I62("자릿수가 다른 두 소수의 나눗셈", decDivDiffGen()),
+        I62("(자연수) ÷ (소수)", natDivDecGen()),
+        I62("나머지가 있는 소수의 나눗셈", decDivRemGen()),
+        I62("소수의 몫을 반올림하기", decRoundGen()),
+        I62("소수의 나눗셈의 활용", decDivMixGen()),
+        I62("쌓기나무의 개수 구하기", cubeCountGen()),
       ],
     },
   ];
