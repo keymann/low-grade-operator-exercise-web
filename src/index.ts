@@ -60,6 +60,7 @@ export default {
 		switch (url.pathname) {
 			case "/api/signup": return handleSignup(request, env);
 			case "/api/login": return handleLogin(request, env);
+			case "/api/change-password": return handleChangePassword(request, env);
 			case "/api/state": return handleState(request, env, url);
 			default: return env.ASSETS.fetch(request);
 		}
@@ -99,6 +100,24 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
 	if (!user) return json({ error: "auth" }, 401);
 	if ((await hashPw(password)) !== user.pwHash) return json({ error: "auth" }, 401);
 	return json({ ok: true, id, token: await tokenFor(id, user.pwHash) });
+}
+
+// 로그인 비밀번호 변경: 현재 비밀번호 검증 → 새 해시 저장 → 새 토큰 반환
+async function handleChangePassword(request: Request, env: Env): Promise<Response> {
+	if (request.method !== "POST") return json({ error: "method" }, 405);
+	let body: any;
+	try { body = await request.json(); } catch { return json({ error: "bad" }, 400); }
+	const id = String(body.id ?? "").trim();
+	const current = String(body.current ?? "");
+	const next = String(body.next ?? body.new ?? "");
+
+	const user = await getUser(env, id);
+	if (!user || (await hashPw(current)) !== user.pwHash) return json({ error: "auth" }, 401);
+	if (next.length < 4) return json({ error: "weak" }, 400);
+
+	const pwHash = await hashPw(next);
+	await env.STATE.put(userKey(id), JSON.stringify({ ...user, pwHash }));
+	return json({ ok: true, id, token: await tokenFor(id, pwHash) });
 }
 
 async function handleState(request: Request, env: Env, url: URL): Promise<Response> {

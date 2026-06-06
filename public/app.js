@@ -24,6 +24,7 @@
   let mode = "student";          // 'student' | 'parent'
   let parentUnlocked = false;    // 세션 동안만 유효
   let parentTab = "assign";      // 'assign' | 'schedule' | 'answers' | 'history' | 'achievement' | 'settings'
+  let settingsTab = "parent";    // 'parent' | 'login' (설정 내부 탭)
   let dirty = false;             // 로컬 변경이 서버에 아직 반영되지 않음
   let saveTimer = null;
 
@@ -540,21 +541,45 @@
   }
 
   function renderSettings() {
+    const tabs = `
+      <div class="ach-tabs">
+        <button class="ach-tab ${settingsTab === "parent" ? "active" : ""}" data-stab="parent">부모모드 비밀번호</button>
+        <button class="ach-tab ${settingsTab === "login" ? "active" : ""}" data-stab="login">로그인 비밀번호</button>
+      </div>`;
+    const body = settingsTab === "login" ? renderLoginPwForm() : renderParentPwForm();
     return `
       <div class="panel">
         <h2>설정</h2>
-        <h3>비밀번호 변경</h3>
-        <div class="form-grid narrow">
-          <div class="field"><label>현재 비밀번호</label><input type="password" data-sel="pw-cur"></div>
-          <div class="field"><label>새 비밀번호</label><input type="password" data-sel="pw-new"></div>
-          <div class="field"><label>새 비밀번호 확인</label><input type="password" data-sel="pw-new2"></div>
-        </div>
-        <div class="action-row"><button class="btn btn-primary" data-act="change-pw">비밀번호 변경</button></div>
-        <p class="muted small">부모모드 진입 비밀번호입니다(로그인 비밀번호와 별개).</p>
+        ${tabs}
+        ${body}
         <h3>계정</h3>
         <div class="note">현재 로그인: <b>${escapeHtml(auth ? auth.id : "")}</b></div>
         <div class="action-row"><button class="btn btn-ghost" data-act="logout">로그아웃</button></div>
       </div>`;
+  }
+
+  function renderParentPwForm() {
+    return `
+      <h3>부모모드 비밀번호 변경</h3>
+      <div class="form-grid narrow">
+        <div class="field"><label>현재 비밀번호</label><input type="password" data-sel="pw-cur"></div>
+        <div class="field"><label>새 비밀번호</label><input type="password" data-sel="pw-new"></div>
+        <div class="field"><label>새 비밀번호 확인</label><input type="password" data-sel="pw-new2"></div>
+      </div>
+      <div class="action-row"><button class="btn btn-primary" data-act="change-pw">부모모드 비밀번호 변경</button></div>
+      <p class="muted small">부모모드 진입 시 사용하는 비밀번호입니다(로그인 비밀번호와 별개).</p>`;
+  }
+
+  function renderLoginPwForm() {
+    return `
+      <h3>로그인 비밀번호 변경</h3>
+      <div class="form-grid narrow">
+        <div class="field"><label>현재 로그인 비밀번호</label><input type="password" data-sel="lpw-cur"></div>
+        <div class="field"><label>새 로그인 비밀번호</label><input type="password" data-sel="lpw-new"></div>
+        <div class="field"><label>새 비밀번호 확인</label><input type="password" data-sel="lpw-new2"></div>
+      </div>
+      <div class="action-row"><button class="btn btn-primary" data-act="change-login-pw">로그인 비밀번호 변경</button></div>
+      <p class="muted small">다음 로그인부터 새 비밀번호를 사용합니다(4자 이상).</p>`;
   }
 
   /* ---------- 문제지(worksheet) 렌더 ---------- */
@@ -609,6 +634,9 @@
     root.querySelectorAll("[data-tab]").forEach((el) => {
       el.addEventListener("click", () => { parentTab = el.getAttribute("data-tab"); render(); });
     });
+    root.querySelectorAll("[data-stab]").forEach((el) => {
+      el.addEventListener("click", () => { settingsTab = el.getAttribute("data-stab"); render(); });
+    });
 
     // 출제 셀렉터 변경
     root.querySelectorAll('[data-sel^="assign-"]').forEach((el) => {
@@ -649,6 +677,7 @@
       case "del-assign": return doDeleteAssign();
       case "redo": return doRedo();
       case "change-pw": return doChangePw();
+      case "change-login-pw": return doChangeLoginPw();
       case "edit-sch": return editSchedule(el.getAttribute("data-date"));
       case "logout": return doLogout();
     }
@@ -788,6 +817,27 @@
     state.password = n1;
     saveState();
     Modal.alert("완료", "비밀번호가 변경되었습니다.", () => render());
+  }
+
+  // 로그인 비밀번호 변경 (서버 검증 → 새 토큰으로 캐시 갱신)
+  async function doChangeLoginPw() {
+    if (!auth) return;
+    const cur = document.querySelector('[data-sel="lpw-cur"]').value;
+    const n1 = document.querySelector('[data-sel="lpw-new"]').value;
+    const n2 = document.querySelector('[data-sel="lpw-new2"]').value;
+    if (!n1 || n1.length < 4) return Modal.alert("변경 실패", "새 비밀번호는 4자 이상이어야 합니다.");
+    if (n1 !== n2) return Modal.alert("변경 실패", "새 비밀번호가 일치하지 않습니다.");
+    try {
+      const res = await fetch("/api/change-password", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: auth.id, current: cur, next: n1 }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (res.ok && j.ok) { saveAuth({ id: j.id, token: j.token }); Modal.alert("완료", "로그인 비밀번호가 변경되었습니다.", () => render()); return; }
+      if (j.error === "auth") return Modal.alert("변경 실패", "현재 로그인 비밀번호가 올바르지 않습니다.");
+      if (j.error === "weak") return Modal.alert("변경 실패", "새 비밀번호는 4자 이상이어야 합니다.");
+      Modal.alert("변경 실패", "비밀번호를 변경하지 못했습니다.");
+    } catch (e) { Modal.alert("변경 실패", "비밀번호를 변경하지 못했습니다."); }
   }
 
   /* ---------- 스케줄 편집 ---------- */
