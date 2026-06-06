@@ -140,10 +140,6 @@ button { font-family: inherit; cursor: pointer; }
 .vexpr .vans { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
 .vexpr .vans .blank { min-width: 64px; }
 
-/* 쌓기나무 그림 문제 */
-.cube-fig { width: 100%; display: flex; justify-content: center; margin: 2px 0 10px; }
-.cube-svg { display: block; width: 100%; height: auto; max-width: 200px; max-height: 240px; }
-
 /* ---------- 패널/폼(부모) ---------- */
 .panel { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; }
 .panel h2 { margin: 0 0 6px; font-size: 20px; }
@@ -175,6 +171,8 @@ button { font-family: inherit; cursor: pointer; }
 .sch-row { display: grid; grid-template-columns: 1fr 1.4fr auto; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
 .sch-date { font-weight: 700; font-size: 14px; }
 .sch-meta { color: #374151; font-size: 14px; }
+.sch-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.btn.sm.danger { color: var(--bad); }
 .badge { background: var(--blue); color: #fff; font-size: 11px; padding: 2px 8px; border-radius: 999px; margin-left: 4px; }
 .badge.alt { background: #8b5cf6; }
 
@@ -301,7 +299,6 @@ button { font-family: inherit; cursor: pointer; }
   .form-grid { grid-template-columns: 1fr; }
   .page-title h1 { font-size: 21px; }
   .expr { font-size: 18px; }
-  .cube-svg { max-width: 160px; }
   .sch-row { grid-template-columns: 1fr auto; }
   .sch-meta { grid-column: 1 / -1; }
   .main { padding: 12px; }

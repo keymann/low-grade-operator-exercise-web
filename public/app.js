@@ -46,8 +46,7 @@
     s = s || {};
     return {
       password: s.password || DEFAULT_PW,
-      schedule: s.schedule || {},
-      scheduleOverrides: s.scheduleOverrides || {},
+      schedules: Array.isArray(s.schedules) ? s.schedules : [], // 기간형 스케줄 [{id,start,end,itemId,count}]
       assignment: s.assignment || null,
       issued: Array.isArray(s.issued) ? s.issued : [],
       history: Array.isArray(s.history) ? s.history : [],
@@ -111,6 +110,7 @@
   }
   function today() { return dateKey(new Date()); }
   function weekdayOf(dateStr) { return WEEKDAYS[new Date(dateStr + "T00:00:00").getDay()]; }
+  function addDays(dateStr, n) { const d = new Date(dateStr + "T00:00:00"); d.setDate(d.getDate() + n); return dateKey(d); }
   function fmtDate(dateStr) {
     const d = new Date(dateStr + "T00:00:00");
     return `${d.getMonth() + 1}월 ${d.getDate()}일 (${WEEKDAY_KO[WEEKDAYS[d.getDay()]]})`;
@@ -123,25 +123,40 @@
   function fmtTime(iso) { const d = new Date(iso); const p = (n) => String(n).padStart(2, "0"); return `${p(d.getHours())}:${p(d.getMinutes())}`; }
 
   /* ---------- 출제(assignment) 구성 ---------- */
-  function buildAssignment(spec, dateStr) {
+  // specs: [{itemId, count}] — 여러 항목을 한 문제지로 합본(겹침 출제). 문제는 1..N 연속 재번호.
+  function buildAssignment(specs, dateStr) {
     if (!Array.isArray(state.issued)) state.issued = [];
     const exclude = new Set(state.issued);
-    const problems = Curriculum.generateSet(spec.itemId, spec.count, exclude);
-    const meta = Curriculum.itemMeta(spec.itemId);
-    if (!problems || !meta) return null;
-    // 이번에 출제한 문제 시그니처를 기록(이후 출제에서 중복 회피). 최근 2000개만 유지.
-    problems.forEach((p) => state.issued.push(p.promptHtml));
+    const problems = [];
+    const metas = [];
+    specs.forEach((spec) => {
+      const set = Curriculum.generateSet(spec.itemId, spec.count, exclude);
+      const meta = Curriculum.itemMeta(spec.itemId);
+      if (!set || !meta) return;
+      metas.push(meta);
+      set.forEach((p) => { exclude.add(p.promptHtml); state.issued.push(p.promptHtml); problems.push({ promptHtml: p.promptHtml, blanks: p.blanks }); });
+    });
+    if (!problems.length) return null;
+    problems.forEach((p, i) => { p.id = i + 1; }); // 연속 넘버링
     if (state.issued.length > 2000) state.issued = state.issued.slice(-2000);
-    return { itemId: spec.itemId, count: spec.count, meta, problems, date: dateStr, status: "pending", answers: {}, result: null, locked: [] };
+    const meta = {
+      groupLabel: metas.length === 1 ? metas[0].groupLabel : metas.map((m) => m.groupLabel).filter((v, i, a) => a.indexOf(v) === i).join(" · "),
+      name: metas.map((m) => m.name).join(" · "),
+      title: metas.map((m) => m.title).join(" · "),
+    };
+    return { specs, meta, problems, date: dateStr, status: "pending", answers: {}, result: null, locked: [] };
   }
 
-  // 오늘의 문제 보장: 명시적 당일 출제가 있으면 유지, 없으면 스케줄/오버라이드로 생성
+  // 오늘의 문제 보장: 당일 출제가 있으면 유지, 없으면 당일에 적용되는 스케줄 전부로 합본 생성
   function ensureTodayAssignment() {
     const t = today();
     if (state.assignment && state.assignment.date === t) return;
-    const spec = state.scheduleOverrides[t] || state.schedule[weekdayOf(t)];
-    if (spec && spec.itemId) {
-      const a = buildAssignment(spec, t);
+    const specs = (state.schedules || [])
+      .filter((e) => e && e.itemId && e.start <= t && t <= e.end)
+      .sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0))
+      .map((e) => ({ itemId: e.itemId, count: e.count }));
+    if (specs.length) {
+      const a = buildAssignment(specs, t);
       if (a) { state.assignment = a; saveState(); return; }
     }
     if (state.assignment && state.assignment.date !== t) { state.assignment = null; saveState(); }
@@ -401,28 +416,39 @@
     if (!group.items.find((it) => it.id === sel.itemId)) sel.itemId = group.items[0].id;
   }
 
+  let schAddSel = { groupId: "g31", itemId: null, count: 10 };
   function renderSchedule() {
-    const rows = [];
-    const base = new Date();
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(base); d.setDate(base.getDate() + i);
-      const ds = dateKey(d), wd = weekdayOf(ds);
-      const override = state.scheduleOverrides[ds];
-      const recurring = state.schedule[wd];
-      const eff = override || recurring;
-      const metaTxt = eff && eff.itemId ? (() => { const m = Curriculum.itemMeta(eff.itemId); return m ? `${m.groupLabel} · ${escapeHtml(m.name)} (${eff.count}문제)` : "없음"; })() : "없음";
-      rows.push(`
+    syncSel(schAddSel);
+    const t = today();
+    const list = (state.schedules || []).slice().sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : 0));
+    const rows = list.length ? list.map((e) => {
+      const m = Curriculum.itemMeta(e.itemId);
+      const active = e.start <= t && t <= e.end;
+      return `
         <div class="sch-row">
-          <div class="sch-date">${fmtDate(ds)}${i === 0 ? ' <span class="badge">오늘</span>' : ""}${override ? ' <span class="badge alt">개별</span>' : ""}</div>
-          <div class="sch-meta">${metaTxt}</div>
-          <button class="btn btn-ghost sm" data-act="edit-sch" data-date="${ds}">편집</button>
-        </div>`);
-    }
+          <div class="sch-date">${fmtDate(e.start)} ~ ${fmtDate(e.end)}${active ? ' <span class="badge">진행중</span>' : ""}</div>
+          <div class="sch-meta">${m ? `${m.groupLabel} · ${escapeHtml(m.name)} (${e.count}문제)` : "없음"}</div>
+          <div class="sch-actions">
+            <button class="btn btn-ghost sm" data-act="edit-sch" data-id="${e.id}">편집</button>
+            <button class="btn btn-ghost sm danger" data-act="del-sch" data-id="${e.id}">삭제</button>
+          </div>
+        </div>`;
+    }).join("") : `<div class="note">등록된 스케줄이 없습니다.</div>`;
     return `
       <div class="panel">
-        <h2>주간 스케줄</h2>
-        <p class="muted">요일별로 반복 출제할 문제를 설정합니다. 편집 시 "이 날짜만" 또는 "반복 등록"(같은 요일 모두)을 선택할 수 있어요.</p>
-        <div class="sch-list">${rows.join("")}</div>
+        <h2>스케줄</h2>
+        <p class="muted">기간(시작~종료)을 정하고 학년·학기·세부 항목·문제 개수를 지정해 등록합니다. 같은 날 여러 스케줄이 겹치면 모든 문제가 함께 출제됩니다.</p>
+        <div class="form-grid">
+          <div class="field"><label>시작일</label><input type="date" data-sel="schadd-start" value="${t}"></div>
+          <div class="field"><label>종료일</label><input type="date" data-sel="schadd-end" value="${t}"></div>
+        </div>
+        <div class="form-grid">
+          ${selectorHtml("schadd", schAddSel)}
+          <div class="field"><label>문제 개수</label><input type="number" min="2" max="40" data-sel="schadd-count" value="${schAddSel.count}"></div>
+        </div>
+        <div class="action-row"><button class="btn btn-primary" data-act="add-sch">스케줄 추가</button></div>
+        <h3>등록된 스케줄</h3>
+        <div class="sch-list">${rows}</div>
       </div>`;
   }
 
@@ -471,9 +497,21 @@
   let achMonth = null;      // YYYY-MM
 
   function recDate(r) { return dateKey(new Date(r.at)); }
+  // 같은 문제(내용 동일)는 1회만 집계. 정답 여부는 최근 시도 기준.
+  // recs 는 최신순(newest-first)으로 들어온다고 가정 → 처음 본 해시 = 최근 시도.
   function aggregate(recs) {
-    let total = 0, correct = 0;
-    recs.forEach((r) => { total += r.total || 0; correct += r.score || 0; });
+    const seen = new Map();           // h → ok (최근 시도)
+    let legacyTotal = 0, legacyCorrect = 0; // items 없는 구버전 레코드 폴백
+    recs.forEach((r) => {
+      if (Array.isArray(r.items)) {
+        r.items.forEach((it) => { if (!seen.has(it.h)) seen.set(it.h, !!it.ok); });
+      } else {
+        legacyTotal += r.total || 0; legacyCorrect += r.score || 0;
+      }
+    });
+    let correct = legacyCorrect;
+    seen.forEach((ok) => { if (ok) correct++; });
+    const total = seen.size + legacyTotal;
     return { subs: recs.length, total, correct, acc: total ? Math.round((correct / total) * 100) : 0 };
   }
   function summaryHtml(agg) {
@@ -636,6 +674,14 @@
 
   function escapeHtml(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 
+  // 문제 내용(promptHtml) 시그니처 해시(32-bit FNV-1a → base36). 성취도 중복 제외용.
+  function sigHash(s) {
+    s = String(s == null ? "" : s);
+    let h = 0x811c9dc5;
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = (h * 0x01000193) >>> 0; }
+    return h.toString(36);
+  }
+
   // 정답 길이에 따른 답란 폭(ch). 잘림 방지(상한)·과소(하한) 모두 제한 → 셀 초과 방지는 grid/max-width가 담당.
   function blankWidthCh(ans) {
     const len = String(ans == null ? "" : ans).length;
@@ -708,6 +754,9 @@
         el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
       });
     }
+
+    // 스케줄 등록 폼 셀렉터(있을 때만)
+    if (root.querySelector('[data-sel^="schadd-"]')) bindSelGrid("schadd", schAddSel);
   }
 
   function clampInt(v, min, max, dflt) { v = parseInt(v, 10); if (isNaN(v)) return dflt; return Math.max(min, Math.min(max, v)); }
@@ -721,7 +770,9 @@
       case "redo": return doRedo();
       case "change-pw": return doChangePw();
       case "change-login-pw": return doChangeLoginPw();
-      case "edit-sch": return editSchedule(el.getAttribute("data-date"));
+      case "add-sch": return doAddSchedule();
+      case "edit-sch": return editSchedule(el.getAttribute("data-id"));
+      case "del-sch": return doDeleteSchedule(el.getAttribute("data-id"));
       case "logout": return doLogout();
     }
   }
@@ -749,7 +800,7 @@
   /* ---------- 출제 실행 ---------- */
   function doAssign() {
     syncSel(assignSel);
-    const a = buildAssignment({ itemId: assignSel.itemId, count: assignSel.count }, today());
+    const a = buildAssignment([{ itemId: assignSel.itemId, count: assignSel.count }], today());
     if (!a) { Modal.alert("오류", "문제를 생성하지 못했습니다."); return; }
     state.assignment = a;
     saveState();
@@ -818,12 +869,13 @@
     if (!Array.isArray(state.history)) state.history = [];
     state.history.unshift({
       at: new Date().toISOString(),
-      itemId: asg.itemId,
       groupLabel: asg.meta.groupLabel,
       name: asg.meta.name,
       score: result.score,
       total: result.total,
       wrong: result.wrong.slice(),
+      // 성취도 중복 제외용: 문제 내용 해시 + 정답 여부
+      items: asg.problems.map((p) => ({ h: sigHash(p.promptHtml), ok: !result.wrong.includes(p.id) })),
     });
     if (state.history.length > 500) state.history = state.history.slice(0, 500);
     saveState();
@@ -884,44 +936,102 @@
     } catch (e) { Modal.alert("변경 실패", "비밀번호를 변경하지 못했습니다."); }
   }
 
-  /* ---------- 스케줄 편집 ---------- */
+  /* ---------- 스케줄 (기간형) ---------- */
   let schSel = {};
-  function editSchedule(ds) {
-    const wd = weekdayOf(ds);
-    const eff = state.scheduleOverrides[ds] || state.schedule[wd] || {};
-    schSel = { groupId: "g31", itemId: eff.itemId || null, count: eff.count || 10 };
-    if (eff.itemId) { const f = Curriculum.findItem(eff.itemId); if (f) schSel.groupId = f.group.id; }
-    syncSel(schSel);
-    Modal.show({
-      title: `${fmtDate(ds)} 스케줄 편집`,
-      bodyHtml: `
-        <div class="form-grid">${selectorHtml("sch", schSel)}
-          <div class="field"><label>문제 개수</label><input type="number" min="2" max="40" data-sel="sch-count" value="${schSel.count}"></div>
-        </div>
-        <p class="muted small">변경 범위를 선택하세요.</p>`,
-      buttons: [
-        { label: "비우기", kind: "ghost", onClick: () => { delete state.scheduleOverrides[ds]; delete state.schedule[wd]; saveState(); Modal.close(); render(); } },
-        { label: "이 날짜만", kind: "ghost", onClick: () => { state.scheduleOverrides[ds] = { itemId: schSel.itemId, count: schSel.count }; saveState(); Modal.close(); render(); } },
-        { label: "반복 등록", kind: "primary", onClick: () => { state.schedule[wd] = { itemId: schSel.itemId, count: schSel.count }; delete state.scheduleOverrides[ds]; saveState(); Modal.close(); render(); } },
-      ],
-    });
-    setTimeout(() => bindSchSelectors(), 30);
-  }
+  function schedId() { return "s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 
-  function bindSchSelectors() {
-    document.querySelectorAll('[data-sel^="sch-"]').forEach((el) => {
+  // 학년·학기/세부항목 셀렉터(+개수) 그리드의 동적 갱신. prefix별 sel 객체 사용.
+  function bindSelGrid(prefix, sel) {
+    document.querySelectorAll(`[data-sel^="${prefix}-"]`).forEach((el) => {
       el.addEventListener("change", () => {
         const k = el.getAttribute("data-sel");
-        if (k === "sch-group") { schSel.groupId = el.value; schSel.itemId = null; }
-        else if (k === "sch-item") { schSel.itemId = el.value; return; }
-        else if (k === "sch-count") { schSel.count = clampInt(el.value, 2, 40, 10); return; }
-        syncSel(schSel);
-        const wrap = el.closest(".form-grid");
-        const countVal = wrap.querySelector('[data-sel="sch-count"]').value;
-        wrap.innerHTML = selectorHtml("sch", schSel) + `<div class="field"><label>문제 개수</label><input type="number" min="2" max="40" data-sel="sch-count" value="${countVal}"></div>`;
-        bindSchSelectors();
+        if (k === `${prefix}-group`) { sel.groupId = el.value; sel.itemId = null; syncSel(sel); }
+        else if (k === `${prefix}-item`) { sel.itemId = el.value; return; }
+        else if (k === `${prefix}-count`) { sel.count = clampInt(el.value, 2, 40, 10); return; }
+        else return; // 날짜 입력 등은 제출 시 읽음
+        const grid = el.closest(".form-grid");
+        const countEl = grid.querySelector(`[data-sel="${prefix}-count"]`);
+        const countVal = countEl ? countEl.value : sel.count;
+        grid.innerHTML = selectorHtml(prefix, sel) + `<div class="field"><label>문제 개수</label><input type="number" min="2" max="40" data-sel="${prefix}-count" value="${countVal}"></div>`;
+        bindSelGrid(prefix, sel);
       });
     });
+  }
+
+  function doAddSchedule() {
+    const start = document.querySelector('[data-sel="schadd-start"]').value;
+    const end = document.querySelector('[data-sel="schadd-end"]').value;
+    const count = clampInt(document.querySelector('[data-sel="schadd-count"]').value, 2, 40, 10);
+    syncSel(schAddSel);
+    if (!start || !end) return Modal.alert("등록 실패", "시작일과 종료일을 선택해 주세요.");
+    if (start > end) return Modal.alert("등록 실패", "종료일은 시작일과 같거나 이후여야 합니다.");
+    if (!schAddSel.itemId) return Modal.alert("등록 실패", "세부 항목을 선택해 주세요.");
+    if (!Array.isArray(state.schedules)) state.schedules = [];
+    state.schedules.push({ id: schedId(), start, end, itemId: schAddSel.itemId, count });
+    saveState();
+    Modal.alert("등록 완료", `${fmtDate(start)} ~ ${fmtDate(end)} 스케줄을 추가했어요.`, () => render());
+  }
+
+  function doDeleteSchedule(id) {
+    const e = (state.schedules || []).find((x) => x.id === id);
+    if (!e) return;
+    const m = Curriculum.itemMeta(e.itemId);
+    Modal.show({
+      title: "스케줄 삭제",
+      bodyHtml: `<p class="modal-text">${fmtDate(e.start)} ~ ${fmtDate(e.end)}<br>${m ? escapeHtml(m.name) : ""} 스케줄을 삭제할까요?</p>`,
+      buttons: [
+        { label: "취소", kind: "ghost", onClick: () => Modal.close() },
+        { label: "삭제", kind: "primary", onClick: () => { state.schedules = state.schedules.filter((x) => x.id !== id); saveState(); Modal.close(); render(); } },
+      ],
+    });
+  }
+
+  function editSchedule(id) {
+    const e = (state.schedules || []).find((x) => x.id === id);
+    if (!e) return;
+    schSel = { groupId: "g31", itemId: e.itemId, count: e.count };
+    const f = Curriculum.findItem(e.itemId); if (f) schSel.groupId = f.group.id;
+    syncSel(schSel);
+    Modal.show({
+      title: "스케줄 편집",
+      bodyHtml: `
+        <div class="form-grid">
+          <div class="field"><label>시작일</label><input type="date" data-sel="schedit-start" value="${e.start}"></div>
+          <div class="field"><label>종료일</label><input type="date" data-sel="schedit-end" value="${e.end}"></div>
+        </div>
+        <div class="form-grid">${selectorHtml("schedit", schSel)}
+          <div class="field"><label>문제 개수</label><input type="number" min="2" max="40" data-sel="schedit-count" value="${schSel.count}"></div>
+        </div>
+        <p class="muted small">기간 일부만 바꾸려면 날짜를 그 범위로 좁힌 뒤 "선택 기간만 변경"을 누르세요.</p>`,
+      buttons: [
+        { label: "취소", kind: "ghost", onClick: () => Modal.close() },
+        { label: "선택 기간만 변경", kind: "ghost", onClick: () => applyScheduleEdit(id, false) },
+        { label: "전체 수정", kind: "primary", onClick: () => applyScheduleEdit(id, true) },
+      ],
+    });
+    setTimeout(() => bindSelGrid("schedit", schSel), 30);
+  }
+
+  function applyScheduleEdit(id, whole) {
+    const e = (state.schedules || []).find((x) => x.id === id);
+    if (!e) return;
+    const start = document.querySelector('[data-sel="schedit-start"]').value;
+    const end = document.querySelector('[data-sel="schedit-end"]').value;
+    const count = clampInt(document.querySelector('[data-sel="schedit-count"]').value, 2, 40, 10);
+    syncSel(schSel);
+    if (!start || !end || start > end) return Modal.alert("수정 실패", "기간을 올바르게 선택해 주세요.");
+    if (!schSel.itemId) return Modal.alert("수정 실패", "세부 항목을 선택해 주세요.");
+    if (whole) {
+      e.start = start; e.end = end; e.itemId = schSel.itemId; e.count = count;
+    } else {
+      if (start < e.start || end > e.end) return Modal.alert("수정 실패", "선택 기간은 원래 기간 안에 있어야 합니다.");
+      const pieces = [];
+      if (e.start < start) pieces.push({ id: schedId(), start: e.start, end: addDays(start, -1), itemId: e.itemId, count: e.count });
+      pieces.push({ id: schedId(), start, end, itemId: schSel.itemId, count });
+      if (end < e.end) pieces.push({ id: schedId(), start: addDays(end, 1), end: e.end, itemId: e.itemId, count: e.count });
+      state.schedules = state.schedules.filter((x) => x.id !== id).concat(pieces);
+    }
+    saveState(); Modal.close(); render();
   }
 
   /* ---------- 모달 시스템 ---------- */
