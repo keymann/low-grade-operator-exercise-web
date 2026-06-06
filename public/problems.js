@@ -514,90 +514,6 @@
       return { promptHtml: expr(LBL(`${a.toFixed(1)} ÷ ${b} 를 반올림하여 ${label}`) + OP("=") + B(0)), blanks: [trimNum(ans.toFixed(place))] };
     };
   }
-  // 단위 정육면체 더미를 진짜 3D Box(Zdog)로 렌더 → SVG 문자열 (cubes: [{x,y,z}])
-  // Zdog가 정육면체의 정점/투영/깊이정렬을 계산하므로 입체 정합성이 보장된다.
-  // Zdog는 도형당 색 하나(채움=선)만 지원하므로, ① 면 채움 Box + ② 어두운 와이어프레임
-  // Box 2패스로 그려 정육면체 모서리를 선명하게 표현한다. viewBox는 실제 path 좌표로 계산.
-  const ISO_ROT = { x: -0.6155, y: -0.7854 }; // 아이소메트릭: x≈35.26°, y=45°
-  function zdogCubesSvg(cubes, s) {
-    s = s || 26;
-    if (typeof document === "undefined" || !window.Zdog) return "";
-    const Z = window.Zdog;
-    // 중심 정렬(원점=도형 중심), 높이(z)는 화면 위쪽(Zdog −y)으로 매핑
-    let W = 0, D = 0, H = 0;
-    cubes.forEach((c) => { W = Math.max(W, c.x + 1); D = Math.max(D, c.y + 1); H = Math.max(H, c.z + 1); });
-    const cx = W / 2, cy = D / 2, cz = H / 2;
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("width", "200"); svg.setAttribute("height", "200"); // 생성 시 size 읽힘(아래서 viewBox 재계산)
-    const illo = new Z.Illustration({ element: svg, zoom: s, rotate: ISO_ROT });
-    const TOP = "#eaf1ff", RIGHT = "#9db8ef", LEFT = "#c4d6f8", EDGE = "#33415e";
-    cubes.forEach((c) => {
-      const translate = { x: c.x - cx + 0.5, y: -(c.z - cz + 0.5), z: c.y - cy + 0.5 };
-      // ① 면 채움 (모서리는 별도 패스에서)
-      new Z.Box({
-        addTo: illo, width: 1, height: 1, depth: 1, translate, stroke: false,
-        topFace: TOP, bottomFace: false,
-        leftFace: LEFT, rightFace: RIGHT, frontFace: LEFT, rearFace: RIGHT,
-      });
-      // ② 어두운 와이어프레임 (정육면체 모서리)
-      new Z.Box({
-        addTo: illo, width: 1, height: 1, depth: 1, translate,
-        fill: false, color: EDGE, stroke: 0.045, bottomFace: false,
-      });
-    });
-    illo.updateRenderGraph();
-    // 생성된 path 좌표 → 타이트한 viewBox
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    svg.querySelectorAll("path").forEach((p) => {
-      const nums = (p.getAttribute("d") || "").match(/-?\d+(?:\.\d+)?/g);
-      if (!nums) return;
-      for (let i = 0; i + 1 < nums.length; i += 2) {
-        const X = +nums[i], Y = +nums[i + 1];
-        if (X < minX) minX = X; if (X > maxX) maxX = X;
-        if (Y < minY) minY = Y; if (Y > maxY) maxY = Y;
-      }
-    });
-    const pad = 3;
-    const vb = `${(minX - pad).toFixed(1)} ${(minY - pad).toFixed(1)} ${(maxX - minX + pad * 2).toFixed(1)} ${(maxY - minY + pad * 2).toFixed(1)}`;
-    svg.removeAttribute("width"); svg.removeAttribute("height");
-    svg.setAttribute("viewBox", vb);
-    svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
-    svg.setAttribute("class", "cube-svg");
-    svg.setAttribute("role", "img");
-    svg.setAttribute("aria-label", "쌓기나무 그림");
-    return new XMLSerializer().serializeToString(svg);
-  }
-
-  // 쌓기나무의 개수: 불규칙 도형(아이소메트릭 SVG)을 보고 단위 정육면체 개수 세기.
-  // 아이소메트릭에서 (x,y,z)는 (x+1,y+1,z+1)에 정확히 가려지므로, 완전히 가려지는
-  // 큐브가 없는 도형만 채택해 그림만으로 개수가 유일하게 결정되도록 한다.
-  function cubeCountGen() {
-    function buildCubes() {
-      const W = ri(2, 3), D = ri(2, 3), h = [];
-      for (let x = 0; x < W; x++) { h[x] = []; for (let y = 0; y < D; y++) h[x][y] = ri(0, 3); }
-      const present = (x, y, z) => x >= 0 && x < W && y >= 0 && y < D && z >= 0 && z < h[x][y];
-      const cubes = [];
-      let maxH = 0;
-      for (let x = 0; x < W; x++) for (let y = 0; y < D; y++) {
-        if (h[x][y] > maxH) maxH = h[x][y];
-        for (let z = 0; z < h[x][y]; z++) cubes.push({ x, y, z });
-      }
-      if (cubes.length < 5 || cubes.length > 16 || maxH < 2) return null;
-      for (const c of cubes) if (present(c.x + 1, c.y + 1, c.z + 1)) return null; // 완전히 가려지는 큐브 → 폐기
-      return cubes;
-    }
-    return () => {
-      let cubes = null;
-      for (let i = 0; i < 200 && !cubes; i++) cubes = buildCubes();
-      if (!cubes) cubes = [ // 검증된 폴백(계단형, 7개)
-        { x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, { x: 0, y: 1, z: 0 }, { x: 1, y: 1, z: 0 },
-        { x: 0, y: 0, z: 1 }, { x: 0, y: 1, z: 1 }, { x: 0, y: 0, z: 2 },
-      ];
-      const fig = `<div class="cube-fig">${zdogCubesSvg(cubes, 26)}</div>`;
-      const line = expr(T("쌓기나무의 개수") + OP("=") + B(0));
-      return { promptHtml: fig + line, blanks: [String(cubes.length)] };
-    };
-  }
 
   /* ---------- 커리큘럼 카탈로그 (학년군 → 세부항목) ---------- */
   // 성취기준(2022 개정, rule.pdf) 매핑: "그룹|항목명" → 성취기준 코드. create_guide.md 와 동기화.
@@ -642,7 +558,7 @@
     "g62|(소수 한 자리 수) ÷ (소수 한 자리 수)": "6수01-15", "g62|(소수 두 자리 수) ÷ (소수 두 자리 수)": "6수01-15",
     "g62|자릿수가 다른 두 소수의 나눗셈": "6수01-15", "g62|(자연수) ÷ (소수)": "6수01-15",
     "g62|나머지가 있는 소수의 나눗셈": "6수01-15", "g62|소수의 몫을 반올림하기": "6수01-03",
-    "g62|소수의 나눗셈의 활용": "6수01-15", "g62|쌓기나무의 개수 구하기": "6수03",
+    "g62|소수의 나눗셈의 활용": "6수01-15",
   };
   let ivc = 0;
   // I(name, gen) — 학기는 그룹으로 구분, 성취기준 코드는 STD 매핑에서 부여
@@ -767,7 +683,6 @@
         I62("나머지가 있는 소수의 나눗셈", decDivRemGen()),
         I62("소수의 몫을 반올림하기", decRoundGen()),
         I62("소수의 나눗셈의 활용", decDivMixGen()),
-        I62("쌓기나무의 개수 구하기", cubeCountGen()),
       ],
     },
   ];
