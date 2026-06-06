@@ -599,24 +599,26 @@
       html = html.replace(/<span class="blank" data-bi="(\d+)"[^>]*><\/span>/g, (mt, bi) => {
         bi = +bi;
         const key = p.id + "_" + bi;
+        // 정답 자릿수에 맞춰 답란 폭을 동적으로 결정(잘림 방지, 셀 초과 방지)
+        const w = blankWidthCh(p.blanks[bi]);
         if (opts.showAnswers) {
-          return `<span class="blank answer">${escapeHtml(p.blanks[bi])}</span>`;
+          return `<span class="blank answer" style="min-width:${w}ch">${escapeHtml(p.blanks[bi])}</span>`;
         }
         const val = asg.answers[key];
         const shown = val != null && val !== "" ? escapeHtml(val) : "";
         if (isLocked) {
-          return `<span class="blank correct">${shown}</span>`;
+          return `<span class="blank correct" style="min-width:${w}ch">${shown}</span>`;
         }
         if (opts.result) {
-          return `<span class="blank wrong"><span class="bad-val">${shown || "·"}</span></span>`;
+          return `<span class="blank wrong" style="min-width:${w}ch"><span class="bad-val">${shown || "·"}</span></span>`;
         }
         const cls = "blank" + (shown ? " filled" : "");
         if (opts.interactive && IS_TOUCH) {
           // 모바일/태블릿: 네이티브 입력 → OS 기본 숫자 키보드
-          return `<input class="${cls} blank-input" data-blank="${key}" inputmode="decimal" maxlength="9" aria-label="답 입력" value="${escapeHtml(shown)}">`;
+          return `<input class="${cls} blank-input" data-blank="${key}" inputmode="decimal" maxlength="9" aria-label="답 입력" style="width:calc(${w}ch + 1.3em)" value="${escapeHtml(shown)}">`;
         }
         const attrs = opts.interactive ? ` data-blank="${key}" tabindex="0" role="button"` : "";
-        return `<span class="${cls}"${attrs}>${shown}</span>`;
+        return `<span class="${cls}"${attrs} style="min-width:${w}ch">${shown}</span>`;
       });
       const pcls = "prob" + (isLocked ? " prob-correct" : isWrong ? " prob-wrong" : "");
       return `<div class="${pcls}"><span class="prob-no">${p.id}</span><div class="prob-body">${html}</div></div>`;
@@ -633,6 +635,12 @@
   }
 
   function escapeHtml(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+  // 정답 길이에 따른 답란 폭(ch). 잘림 방지(상한)·과소(하한) 모두 제한 → 셀 초과 방지는 grid/max-width가 담당.
+  function blankWidthCh(ans) {
+    const len = String(ans == null ? "" : ans).length;
+    return Math.min(Math.max(len + 1, 3), 11);
+  }
 
   /* ---------- 이벤트 바인딩 ---------- */
   function bind() {
