@@ -197,3 +197,6 @@ dist
 !.env.example
 .dev.vars*
 !.dev.vars.example
+
+# 분류 참고용 로컬 이미지(커밋 제외)
+high_lesson.jpeg
