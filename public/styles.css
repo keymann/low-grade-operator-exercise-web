@@ -150,6 +150,7 @@ button { font-family: inherit; cursor: pointer; }
 
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .form-grid.narrow { grid-template-columns: 1fr; max-width: 360px; }
+.form-grid.sch-dates { margin-bottom: 14px; } /* 날짜 영역 아래 여백을 필드 간격(14px)과 동일하게 */
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field label { font-size: 13px; font-weight: 600; color: #374151; }
 .field select, .field input {

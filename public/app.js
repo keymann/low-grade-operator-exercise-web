@@ -438,7 +438,7 @@
       <div class="panel">
         <h2>스케줄</h2>
         <p class="muted">기간(시작~종료)을 정하고 학년·학기·세부 항목·문제 개수를 지정해 등록합니다. 같은 날 여러 스케줄이 겹치면 모든 문제가 함께 출제됩니다.</p>
-        <div class="form-grid">
+        <div class="form-grid sch-dates">
           <div class="field"><label>시작일</label><input type="date" data-sel="schadd-start" value="${t}"></div>
           <div class="field"><label>종료일</label><input type="date" data-sel="schadd-end" value="${t}"></div>
         </div>
@@ -995,7 +995,7 @@
     Modal.show({
       title: "스케줄 편집",
       bodyHtml: `
-        <div class="form-grid">
+        <div class="form-grid sch-dates">
           <div class="field"><label>시작일</label><input type="date" data-sel="schedit-start" value="${e.start}"></div>
           <div class="field"><label>종료일</label><input type="date" data-sel="schedit-end" value="${e.end}"></div>
         </div>
