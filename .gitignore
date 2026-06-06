@@ -200,3 +200,6 @@ dist
 
 # 분류 참고용 로컬 이미지(커밋 제외)
 high_lesson.jpeg
+
+# 성취기준 원문 PDF(로컬 참고용, 커밋 제외)
+rule.pdf
