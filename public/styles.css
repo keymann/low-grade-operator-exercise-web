@@ -76,7 +76,7 @@ button { font-family: inherit; cursor: pointer; }
 .ws-info .ws-unit { font-weight: 700; }
 .ws-info .ws-lvl { color: var(--muted); }
 .ws-title { font-size: 16px; margin: 14px 0 16px; }
-.ws-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 24px; }
+.ws-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 24px; }
 
 /* 문제 */
 .prob { display: flex; gap: 8px; align-items: flex-start; padding: 8px; border-radius: 8px; min-height: 40px; }
@@ -123,6 +123,8 @@ button { font-family: inherit; cursor: pointer; }
   -webkit-appearance: none; appearance: none; outline: none;
   font: inherit; font-weight: 700; text-align: center; color: var(--blue-d);
   background: #f5f8ff;
+  /* 폭은 정답 길이에 따라 인라인(width:Nch)으로 지정. 셀을 넘지 않도록 상한만 둔다. */
+  max-width: 100%; box-sizing: border-box;
 }
 .blank-input:focus { border-color: var(--blue); background: #dde9ff; box-shadow: 0 0 0 3px rgba(47,111,237,.2); }
 
@@ -295,7 +297,7 @@ button { font-family: inherit; cursor: pointer; }
 
 /* ---------- 반응형 ---------- */
 @media (max-width: 640px) {
-  .ws-grid { grid-template-columns: 1fr; gap: 12px 0; }
+  .ws-grid { grid-template-columns: minmax(0, 1fr); gap: 12px 0; }
   .form-grid { grid-template-columns: 1fr; }
   .page-title h1 { font-size: 21px; }
   .expr { font-size: 18px; }
