@@ -15,7 +15,10 @@
   let cur = "";
   let onInput = null, onClose = null;
   let pos = null;            // { left, top } — 닫아도 위치 기억
+  let anchor = null;         // 활성 답란 element (가림 방지용)
+  let savedScrollY = 0;      // 패드 열기 직전 스크롤 위치(복구용)
   const MAX_LEN = 9;
+  const ANCHOR_MARGIN = 16;
 
   function build() {
     if (el) return;
@@ -65,14 +68,33 @@
     cur = opts.value != null ? String(opts.value) : "";
     onInput = opts.onInput || null;
     onClose = opts.onClose || null;
+    const firstOpen = !el.classList.contains("show");
+    if (firstOpen) savedScrollY = window.scrollY; // 처음 열 때의 스크롤 기억
+    anchor = opts.anchor || null;
     updateDisplay();
     el.classList.add("show");
+    // 패드가 답란을 가리지 않도록 스크롤 여유 확보 후 보정
+    document.body.style.paddingBottom = (el.offsetHeight + 48) + "px";
     place();
+    ensureAnchorVisible();
+  }
+
+  // 활성 답란이 패드(하단 고정)에 가려지면 페이지를 스크롤해 답란을 패드 위로 올린다.
+  function ensureAnchorVisible() {
+    if (!anchor) return;
+    const r = anchor.getBoundingClientRect();
+    const padTop = pos ? pos.top : window.innerHeight;
+    if (r.bottom > padTop - ANCHOR_MARGIN) {
+      window.scrollBy({ top: r.bottom - (padTop - ANCHOR_MARGIN), behavior: "smooth" });
+    }
   }
 
   function close() {
     if (!el) return;
     el.classList.remove("show");
+    document.body.style.paddingBottom = "";
+    window.scrollTo({ top: savedScrollY, behavior: "smooth" }); // 뷰포트 복구
+    anchor = null;
     const cb = onClose;
     onClose = null; onInput = null;
     cb && cb();
@@ -129,7 +151,7 @@
     head.addEventListener("pointercancel", endDrag);
   }
 
-  window.addEventListener("resize", () => { if (isOpen()) clampAndApply(); });
+  window.addEventListener("resize", () => { if (isOpen()) { clampAndApply(); ensureAnchorVisible(); } });
 
   window.Numberpad = { open, close, isOpen };
 })();

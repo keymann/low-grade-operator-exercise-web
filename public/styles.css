@@ -115,6 +115,14 @@ button { font-family: inherit; cursor: pointer; }
 /* 활성 답란(numberpad 입력 중) */
 .blank.active { border-color: var(--blue); background: #dde9ff; box-shadow: 0 0 0 3px rgba(47,111,237,.2); }
 
+/* 모바일 네이티브 입력 답란 (OS 숫자 키보드) */
+.blank-input {
+  -webkit-appearance: none; appearance: none; outline: none;
+  font: inherit; font-weight: 700; text-align: center; color: var(--blue-d);
+  background: #f5f8ff;
+}
+.blank-input:focus { border-color: var(--blue); background: #dde9ff; box-shadow: 0 0 0 3px rgba(47,111,237,.2); }
+
 /* 세로식(세로셈) */
 .vexpr {
   display: inline-grid; grid-template-columns: 1.2em auto; align-items: center;

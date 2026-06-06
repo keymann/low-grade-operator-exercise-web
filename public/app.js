@@ -15,6 +15,12 @@
   const DEFAULT_PW = "kw20021163";
   const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
   const WEEKDAY_KO = { sun: "일", mon: "월", tue: "화", wed: "수", thu: "목", fri: "금", sat: "토" };
+  // 터치 환경(모바일/태블릿) 여부 — true면 OS 기본 숫자 키보드(네이티브 input), false면 커스텀 numberpad.
+  // ?input=native / ?input=pad 로 강제 가능(QA용).
+  const IS_TOUCH =
+    /[?&]input=native/.test(location.search) ? true :
+    /[?&]input=pad/.test(location.search) ? false :
+    ((window.matchMedia && window.matchMedia("(pointer: coarse)").matches) || navigator.maxTouchPoints > 0);
 
   /* ---------- 상태 ---------- */
   let auth = loadAuth();         // { id, token } | null  (로그인 정보 캐시)
@@ -605,6 +611,10 @@
           return `<span class="blank wrong"><span class="bad-val">${shown || "·"}</span></span>`;
         }
         const cls = "blank" + (shown ? " filled" : "");
+        if (opts.interactive && IS_TOUCH) {
+          // 모바일/태블릿: 네이티브 입력 → OS 기본 숫자 키보드
+          return `<input class="${cls} blank-input" data-blank="${key}" inputmode="decimal" maxlength="9" aria-label="답 입력" value="${escapeHtml(shown)}">`;
+        }
         const attrs = opts.interactive ? ` data-blank="${key}" tabindex="0" role="button"` : "";
         return `<span class="${cls}"${attrs}>${shown}</span>`;
       });
@@ -659,12 +669,37 @@
       el.addEventListener("change", () => { achMonth = el.value || today().slice(0, 7); render(); });
     });
 
-    // 학생 빈칸 클릭 → numberpad
-    root.querySelectorAll("[data-blank]").forEach((el) => {
-      const open = () => openBlank(el.getAttribute("data-blank"));
-      el.addEventListener("click", open);
-      el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
-    });
+    if (IS_TOUCH) {
+      // 모바일/태블릿: 네이티브 입력 → OS 숫자 키보드
+      root.querySelectorAll("input[data-blank]").forEach((el) => {
+        const key = el.getAttribute("data-blank");
+        el.addEventListener("input", () => {
+          let v = el.value.replace(/[^0-9.]/g, "");
+          const dot = v.indexOf(".");
+          if (dot >= 0) v = v.slice(0, dot + 1) + v.slice(dot + 1).replace(/\./g, "");
+          if (v !== el.value) el.value = v;
+          state.assignment.answers[key] = v;
+          el.classList.toggle("filled", !!v);
+          saveState();
+        });
+        el.addEventListener("focus", () => { setTimeout(() => el.scrollIntoView({ block: "center", behavior: "smooth" }), 60); });
+        el.addEventListener("blur", () => {
+          saveState();
+          // 다른 답란으로 이동한 게 아니면 제출 모달 검사
+          setTimeout(() => {
+            const ae = document.activeElement;
+            if (!(ae && ae.matches && ae.matches("input[data-blank]"))) afterFill();
+          }, 0);
+        });
+      });
+    } else {
+      // PC: 답란 클릭 → 커스텀 numberpad
+      root.querySelectorAll("[data-blank]").forEach((el) => {
+        const open = () => openBlank(el.getAttribute("data-blank"));
+        el.addEventListener("click", open);
+        el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
+      });
+    }
   }
 
   function clampInt(v, min, max, dflt) { v = parseInt(v, 10); if (isNaN(v)) return dflt; return Math.max(min, Math.min(max, v)); }
@@ -737,6 +772,7 @@
     Numberpad.open({
       title: `${pid}번 문제 답 입력`,
       value: asg.answers[key] || "",
+      anchor: cell,
       onInput: (val) => {
         asg.answers[key] = val;
         const c = app().querySelector(`[data-blank="${key}"]`);
