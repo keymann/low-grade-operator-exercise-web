@@ -21,6 +21,15 @@ body {
   -webkit-text-size-adjust: 100%;
 }
 body.no-scroll { overflow: hidden; }
+/* 학생 모드: 롱탭(프레스) 시 텍스트 선택/iOS 콜아웃 비활성화 */
+body.student-mode {
+  -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none;
+  -webkit-touch-callout: none;
+}
+/* 입력 필드(예: 부모 진입 비밀번호)는 선택/편집 가능하게 예외 처리 */
+body.student-mode input, body.student-mode textarea {
+  -webkit-user-select: text; -moz-user-select: text; -ms-user-select: text; user-select: text;
+}
 button { font-family: inherit; cursor: pointer; }
 
 /* ---------- 상단바 ---------- */

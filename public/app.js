@@ -159,6 +159,8 @@
 
   function render() {
     if (mode === "student") ensureTodayAssignment();
+    // 학생 모드: 롱프레스로 인한 텍스트 선택(select mode)/콜아웃 비활성화
+    document.body.classList.toggle("student-mode", mode === "student");
     app().innerHTML = renderHeader() + `<main class="main">${mode === "student" ? renderStudent() : renderParent()}</main>`;
     bind();
   }
